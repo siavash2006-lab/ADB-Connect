@@ -51,7 +51,7 @@ These dependencies must be obtained separately from their official sources.
 - .NET 10 SDK
 - Android SDK Platform-Tools
 - scrcpy 4.0 Windows runtime for primary operation
-- scrcpy 3.2 Windows runtime for compatibility fallback
+- scrcpy 3.3.4 Windows runtime for compatibility fallback
 - Inno Setup only if you intend to create a local installer
 
 ## Dependency setup
@@ -89,13 +89,13 @@ scrcpy/
         ...complete primary scrcpy 4.0 Windows runtime...
         compat/
             scrcpy.exe
-            ...complete scrcpy 3.2 compatibility runtime...
+            ...complete scrcpy 3.3.4 compatibility runtime...
     win-x86/
         scrcpy.exe
         ...complete primary scrcpy 4.0 Windows runtime...
         compat/
             scrcpy.exe
-            ...complete scrcpy 3.2 compatibility runtime...
+            ...complete scrcpy 3.3.4 compatibility runtime...
 ```
 
 Copy the complete official runtime contents, not only `scrcpy.exe`. Keep all
@@ -133,7 +133,7 @@ written to application logs.
 Some Android TV video encoders may cause newer scrcpy versions to return a
 stream that is much smaller than the physical display. When Original mode is
 used, ADB Connect compares the expected display size with the received scrcpy
-texture and can switch to the configured scrcpy 3.2 compatibility runtime when
+texture and can switch to the configured scrcpy 3.3.4 compatibility runtime when
 a severe reduction is detected.
 
 The fallback is based on the reported display and stream dimensions, not on a
