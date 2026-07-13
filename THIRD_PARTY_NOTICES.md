@@ -12,11 +12,11 @@ binary distributions.
 
 - Project: scrcpy
 - Primary version used by ADB Connect 1.6.3: 4.0
-- Compatibility version used by ADB Connect 1.6.3: 3.2
+- Compatibility version used by ADB Connect 1.6.3: 3.3.4
 - Copyright holders: Genymobile, Romain Vimont and contributors
 - Official source: <https://github.com/Genymobile/scrcpy>
 - Version 4.0 release: <https://github.com/Genymobile/scrcpy/releases/tag/v4.0>
-- Version 3.2 release: <https://github.com/Genymobile/scrcpy/releases/tag/v3.2>
+- Version 3.3.4 release: <https://github.com/Genymobile/scrcpy/releases/tag/v3.3.4>
 - License: Apache License 2.0
 - License text: [LICENSES/scrcpy-Apache-2.0.txt](LICENSES/scrcpy-Apache-2.0.txt)
 
