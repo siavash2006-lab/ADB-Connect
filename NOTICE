@@ -1,0 +1,11 @@
+ADB Connect
+Copyright 2026 siavash2006-lab
+
+This product includes software developed by the ADB Connect project.
+
+ADB Connect interoperates with Android SDK Platform-Tools, scrcpy and Microsoft
+.NET. These third-party projects are not owned by the ADB Connect project and
+remain subject to their respective license terms. See THIRD_PARTY_NOTICES.md.
+
+ADB Connect is not affiliated with, endorsed by, or sponsored by Google,
+Genymobile or Microsoft.

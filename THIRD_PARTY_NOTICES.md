@@ -1,62 +1,73 @@
 # Third-Party Notices
 
-ADB Connect interoperates with or may be distributed alongside third-party
-software components. These components remain the property of their respective
-copyright holders and are provided under their own license terms.
+ADB Connect interoperates with third-party software. Those components remain
+the property of their respective copyright holders and are governed by their
+own license terms.
+
+This source repository does not contain Android SDK Platform-Tools binaries,
+scrcpy binaries, .NET runtime binaries, compiled installers or other third-party
+binary distributions.
 
 ## scrcpy
 
 - Project: scrcpy
-- Primary version: 4.0
-- Compatibility version: 3.2
-- Developer: Genymobile / Romain Vimont and contributors
-- Source: https://github.com/Genymobile/scrcpy
-- Releases:
-  - https://github.com/Genymobile/scrcpy/releases/tag/v4.0
-  - https://github.com/Genymobile/scrcpy/releases/tag/v3.2
+- Primary version used by ADB Connect 1.6.3: 4.0
+- Compatibility version used by ADB Connect 1.6.3: 3.2
+- Copyright holders: Genymobile, Romain Vimont and contributors
+- Official source: <https://github.com/Genymobile/scrcpy>
+- Version 4.0 release: <https://github.com/Genymobile/scrcpy/releases/tag/v4.0>
+- Version 3.2 release: <https://github.com/Genymobile/scrcpy/releases/tag/v3.2>
 - License: Apache License 2.0
-- Usage: ADB Connect launches scrcpy as an external process and embeds its
-  native window inside the TV Control form.
-- Modifications: No modifications are made to the official scrcpy binaries.
-- License text: LICENSES/scrcpy-Apache-2.0.txt
+- License text: [LICENSES/scrcpy-Apache-2.0.txt](LICENSES/scrcpy-Apache-2.0.txt)
 
-The official Windows releases of scrcpy may contain additional third-party
-components, including multimedia, USB and window-management libraries.
-All license and notice files included in the official scrcpy distribution
-must be preserved in redistributed packages.
+ADB Connect launches scrcpy as an external process and hosts its native window
+inside a Windows Forms control. The ADB Connect source repository does not
+contain or redistribute scrcpy executables.
 
-## Android SDK Platform-Tools
+Official scrcpy Windows archives may contain additional third-party components,
+including FFmpeg, SDL, libusb and related runtime libraries. Anyone who creates
+or distributes a binary package containing scrcpy must preserve all license and
+notice files supplied with the selected official scrcpy archive and comply with
+the terms applicable to each included component.
 
-- Component: Android Debug Bridge (ADB)
-- Provider: Google / Android Open Source Project
-- Official source:
-  https://developer.android.com/tools/releases/platform-tools
-- Usage: ADB Connect uses adb.exe to communicate with Android devices.
-- Repository distribution: Android Platform-Tools binaries are not included
-  in the public source repository.
-- License terms:
-  https://developer.android.com/studio/terms
+## Android SDK Platform-Tools / Android Debug Bridge
 
-Redistribution of Android SDK components must be reviewed separately before
-they are included in a public installer.
+- Component: Android Debug Bridge (`adb`)
+- Provider: Google and the Android Open Source Project contributors
+- Official download: <https://developer.android.com/tools/releases/platform-tools>
+- ADB documentation: <https://developer.android.com/tools/adb>
+- Android SDK terms: <https://developer.android.com/studio/terms>
 
-## Microsoft .NET Runtime
+ADB Connect invokes `adb` as an external command-line tool. Android SDK
+Platform-Tools binaries are intentionally excluded from this public source
+repository. Users must obtain them separately from the official source and are
+responsible for accepting and complying with the applicable terms.
 
-- Component: Microsoft .NET Runtime
-- Target version: .NET 10
-- Source: https://github.com/dotnet/runtime
+## Microsoft .NET
+
+- Component: Microsoft .NET Runtime and libraries
+- Target framework used by ADB Connect 1.6.3: .NET 10 for Windows
+- Official source: <https://github.com/dotnet/runtime>
 - License: MIT License
-- Usage: ADB Connect may be published as a self-contained .NET application.
-- License text: LICENSES/dotnet-MIT.txt
-- Third-party notices: LICENSES/dotnet-ThirdPartyNotices.txt
+- License text: [LICENSES/dotnet-MIT.txt](LICENSES/dotnet-MIT.txt)
+- Official third-party notices:
+  <https://github.com/dotnet/runtime/blob/main/THIRD-PARTY-NOTICES.TXT>
 
-## Project Assets
+This source repository targets .NET but does not contain a redistributed .NET
+runtime. Anyone who publishes a self-contained binary should include the
+license and third-party notice files corresponding to the exact .NET runtime
+version used for that build.
 
-The ADB Connect application icon, images and other graphical assets must only
-be distributed if they are original, properly licensed or used with the
-permission of their respective owners.
+## Project artwork and assets
 
-## Disclaimer
+The ADB Connect icon and project-specific graphical assets are provided as part
+of the ADB Connect project under the project's Apache License 2.0, provided that
+the contributor uploading them owns the assets or has the right to license
+them. Third-party trademarks and logos remain the property of their respective
+owners.
 
-Third-party components are distributed under their respective license terms.
-ADB Connect does not claim ownership of these components.
+## No endorsement
+
+ADB Connect is an independent project. References to Android, ADB, scrcpy, .NET,
+Google, Genymobile and Microsoft are made solely to identify compatible tools
+and technologies. No affiliation, sponsorship or endorsement is claimed.
