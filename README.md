@@ -1,30 +1,48 @@
 # ADB Connect
 
-Windows WinForms application for managing Android TV devices through ADB
-and controlling them using scrcpy.
+ADB Connect is a Windows WinForms application for managing Android TV
+devices through ADB and controlling them using scrcpy.
+
+## Current Features
+
+- ADB connection over TCP/IP
+- Wireless ADB pairing
+- Global device selection
+- APK installation and package management
+- Device information
+- Logcat and bugreport
+- Embedded scrcpy TV Control
+- Automatic scrcpy compatibility fallback
+- Windows-based screenshot capture
 
 ## Requirements
 
-- Windows 10/11
+- Windows 10 or Windows 11
 - Visual Studio
 - .NET 10 SDK
 - Inno Setup
 - Android SDK Platform Tools
-- scrcpy x64 and x86 runtimes
+- scrcpy x86 and x64 runtimes
 
 ## Build
 
-Use:
+Use the following scripts:
 
-- Publish-x64.cmd
-- Publish-x86.cmd
+- `Publish-x64.cmd`
+- `Publish-x86.cmd`
 
-## Runtime dependencies
+## Runtime Dependencies
 
-The following binaries are not stored in the Git repository:
+Binary runtime files are not stored in this repository.
 
-- platform-tools
-- scrcpy/win-x64
-- scrcpy/win-x86
+Required directories:
 
-See scrcpy/README.md for installation instructions.
+- `platform-tools`
+- `scrcpy/win-x64`
+- `scrcpy/win-x86`
+
+See `scrcpy/README.md` for setup instructions.
+
+## Version
+
+Current version: 1.6.3
