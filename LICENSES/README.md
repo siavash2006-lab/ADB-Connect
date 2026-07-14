@@ -1,23 +1,25 @@
 # License files
 
-This directory contains license texts for third-party projects referenced by
-ADB Connect.
+This directory contains the license texts, notices and source references for
+third-party components used in ADB Connect all-in-one releases.
 
-## Included
+| File | Component |
+| --- | --- |
+| `scrcpy-Apache-2.0.txt` | scrcpy 4.0 and 3.3.4 |
+| `FFmpeg-LGPL-2.1.txt` | FFmpeg 8.1.1 and 7.1.1 |
+| `SDL3-zlib.txt` | SDL 3.4.8 |
+| `SDL2-zlib.txt` | SDL 2.32.8 |
+| `libusb-LGPL-2.1.txt` | libusb 1.0.29 |
+| `dav1d-BSD-2-Clause.txt` | dav1d 1.5.3 and 1.5.0 |
+| `zlib.txt` | zlib |
+| `Android-Platform-Tools-37.0.0-NOTICE.txt` | Platform-Tools used by scrcpy 4.0 |
+| `Android-Platform-Tools-36.0.0-NOTICE.txt` | Platform-Tools used by scrcpy 3.3.4 |
+| `dotnet-MIT.txt` | Microsoft .NET |
+| `dotnet-THIRD-PARTY-NOTICES.txt` | .NET third-party notices; generated from the installed SDK at publish time and not tracked |
+| `Inno-Setup.txt` | Inno Setup 6 |
+| `BUNDLED_COMPONENT_SOURCES.md` | Exact source versions, URLs and hashes |
 
-- `scrcpy-Apache-2.0.txt`: Apache License 2.0 applicable to scrcpy.
-- `dotnet-MIT.txt`: MIT License applicable to the Microsoft .NET Runtime.
-
-## Not included
-
-Android SDK Platform-Tools binaries and their license package are not
-distributed in this source repository. Users obtain Platform-Tools directly
-from Google and accept the applicable Android SDK terms.
-
-The full Apache License 2.0 at the repository root (`LICENSE`) applies to the
-ADB Connect source code. The separate scrcpy copy is retained for clear
-third-party attribution.
-
-If a self-contained .NET binary or a package containing scrcpy is distributed
-in the future, include the exact third-party notice and license files supplied
-with the runtime versions used for that build.
+The Apache License 2.0 at the repository root applies to ADB Connect itself.
+The release workflow also includes the `NOTICE.txt` supplied with the standalone
+Platform-Tools package and publishes the two exact FFmpeg source archives beside
+the binary release assets.

@@ -30,7 +30,7 @@
         {
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Form1));
             panel4 = new Panel();
-            label7 = new Label();
+            linkSpadra = new LinkLabel();
             label6 = new Label();
             panelDeviceSelector = new Panel();
             tabControl1 = new TabControl();
@@ -123,7 +123,7 @@
             // panel4
             // 
             panel4.BorderStyle = BorderStyle.FixedSingle;
-            panel4.Controls.Add(label7);
+            panel4.Controls.Add(linkSpadra);
             panel4.Controls.Add(label6);
             panel4.Controls.Add(panelDeviceSelector);
             panel4.Controls.Add(tabControl1);
@@ -138,15 +138,21 @@
             panel4.Size = new Size(416, 465);
             panel4.TabIndex = 9;
             // 
-            // label7
-            // 
-            label7.AutoSize = true;
-            label7.ForeColor = SystemColors.ControlDark;
-            label7.Location = new Point(354, 440);
-            label7.Name = "label7";
-            label7.Size = new Size(43, 15);
-            label7.TabIndex = 18;
-            label7.Text = "Spadra";
+            // linkSpadra
+            //
+            linkSpadra.ActiveLinkColor = SystemColors.Highlight;
+            linkSpadra.AutoSize = true;
+            linkSpadra.Cursor = Cursors.Hand;
+            linkSpadra.LinkBehavior = LinkBehavior.HoverUnderline;
+            linkSpadra.LinkColor = SystemColors.ControlDarkDark;
+            linkSpadra.Location = new Point(354, 440);
+            linkSpadra.Name = "linkSpadra";
+            linkSpadra.Size = new Size(43, 15);
+            linkSpadra.TabIndex = 18;
+            linkSpadra.TabStop = true;
+            linkSpadra.Text = "Spadra";
+            linkSpadra.VisitedLinkColor = SystemColors.ControlDarkDark;
+            linkSpadra.LinkClicked += linkSpadra_LinkClicked;
             // 
             // label6
             // 
@@ -156,7 +162,7 @@
             label6.Name = "label6";
             label6.Size = new Size(75, 15);
             label6.TabIndex = 18;
-            label6.Text = "Version: 1.6.3";
+            label6.Text = "Version: 1.6.4";
             // 
             // 
             // panelDeviceSelector
@@ -1081,7 +1087,7 @@
         private PictureBox pbLoading;
         private Button btnBugreport;
         private Label label6;
-        private Label label7;
+        private LinkLabel linkSpadra;
         private TabPage tabPage4;
         private Button button1;
         private Button btnRefreshScrcpyDevices;

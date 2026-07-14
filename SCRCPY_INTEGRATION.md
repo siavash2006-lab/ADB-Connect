@@ -1,6 +1,6 @@
 # scrcpy integration
 
-ADB Connect 1.6.3 adds a fixed global device selector plus a **TV Control** tab that
+ADB Connect 1.6.4 includes a fixed global device selector plus a **TV Control** tab that
 starts scrcpy inside a dedicated WinForms host window.
 
 ## Included behavior

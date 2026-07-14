@@ -9,15 +9,22 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>img\icon.ico</ApplicationIcon>
     <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
-    <Version>1.6.3</Version>
-    <FileVersion>1.6.3.0</FileVersion>
-    <AssemblyVersion>1.6.3.0</AssemblyVersion>
+    <Version>1.6.4</Version>
+    <FileVersion>1.6.4.0</FileVersion>
+    <AssemblyVersion>1.6.4.0</AssemblyVersion>
+    <InformationalVersion>1.6.4</InformationalVersion>
+    <Product>ADB Connect</Product>
+    <Company>Spadra</Company>
+    <Authors>Spadra</Authors>
+    <Copyright>Copyright © 2026 Spadra</Copyright>
+    <PackageProjectUrl>https://spadra.ir</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/siavash2006-lab/ADB-Connect</RepositoryUrl>
     <ScrcpySourceDir Condition="'$(RuntimeIdentifier)' == 'win-x86'">scrcpy\win-x86</ScrcpySourceDir>
     <ScrcpySourceDir Condition="'$(RuntimeIdentifier)' != 'win-x86'">scrcpy\win-x64</ScrcpySourceDir>
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="platform-tools\**\*">
+    <Content Include="platform-tools\adb.exe;platform-tools\AdbWinApi.dll;platform-tools\AdbWinUsbApi.dll;platform-tools\NOTICE.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
@@ -26,6 +33,13 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="LICENSE;NOTICE;THIRD_PARTY_NOTICES.md;LICENSES\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>

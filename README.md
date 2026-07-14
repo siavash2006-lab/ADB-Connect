@@ -6,13 +6,14 @@
 
 ADB Connect is a Windows Forms application for connecting to, inspecting and
 controlling Android and Android TV devices through Android Debug Bridge (ADB).
-It also integrates scrcpy for interactive screen mirroring and remote control.
+It integrates scrcpy for interactive screen mirroring and remote control.
 
-Repository: <https://github.com/siavash2006-lab/ADB-Connect>
+- Repository: <https://github.com/siavash2006-lab/ADB-Connect>
+- Project website: <https://spadra.ir>
+- Current version: **1.6.4**
 
-## Current version
-
-`1.6.3`
+Spadra is the personal project name used by the owner of ADB Connect. It is not
+presented as a registered company or separate legal entity.
 
 ## Features
 
@@ -25,24 +26,26 @@ Repository: <https://github.com/siavash2006-lab/ADB-Connect>
 - Capture and export Logcat output.
 - Generate and save Android bug reports.
 - Export the complete Android property list.
-- Open an embedded TV Control window powered by scrcpy.
+- Open a TV Control window powered by scrcpy.
 - Select Original or limited scrcpy resolutions, including the 1056 TV
   compatibility option.
-- Detect a severely reduced scrcpy stream and switch to a compatibility runtime
-  when available.
+- Detect a severely reduced scrcpy stream and switch to scrcpy 3.3.4 when
+  available.
 - Capture the visible TV Control area with the Windows screen-capture API and
   save it as PNG.
+- Open the Spadra website by clicking **Spadra** in the main form footer.
 
-## Important repository scope
+## Repository and release scope
 
-This public repository contains source code only. It does **not** distribute:
+The Git repository contains the ADB Connect source, release scripts and license
+documentation. Third-party binaries and credentials are excluded from Git. The
+local project package also contains the Inno Setup definitions; `Installer/` is
+gitignored so it can remain a private build resource.
 
-- compiled ADB Connect installers or release binaries;
-- Android SDK Platform-Tools binaries;
-- scrcpy binaries or their runtime libraries;
-- code-signing certificates, logs, screenshots or device reports.
-
-These dependencies must be obtained separately from their official sources.
+GitHub Releases may provide all-in-one x64 and x86 installers and portable ZIP
+files. Those packages include the required ADB, scrcpy and self-contained .NET
+runtime files plus the applicable notices. The corresponding FFmpeg source
+archives are published beside the binary assets.
 
 ## Requirements
 
@@ -52,92 +55,84 @@ These dependencies must be obtained separately from their official sources.
 - Android SDK Platform-Tools
 - scrcpy 4.0 Windows runtime for primary operation
 - scrcpy 3.3.4 Windows runtime for compatibility fallback
-- Inno Setup only if you intend to create a local installer
+- Inno Setup 6 for installers
+- Windows SDK and a trusted Authenticode certificate for public releases
 
-## Dependency setup
+## Dependency layout
 
-### Android SDK Platform-Tools
-
-Download Platform-Tools directly from Google:
-
-<https://developer.android.com/tools/releases/platform-tools>
-
-Copy the required official files into:
+Download dependencies only from their official sources. Do not commit these
+binary directories to Git.
 
 ```text
 platform-tools/
     adb.exe
     AdbWinApi.dll
     AdbWinUsbApi.dll
-```
+    NOTICE.txt
 
-Android SDK Platform-Tools are not included in this repository. Use of the SDK
-is subject to Google's applicable terms.
-
-### scrcpy
-
-Download scrcpy only from its official GitHub repository:
-
-<https://github.com/Genymobile/scrcpy/releases>
-
-The expected source layout is:
-
-```text
 scrcpy/
     win-x64/
-        scrcpy.exe
-        ...complete primary scrcpy 4.0 Windows runtime...
+        ...complete scrcpy 4.0 Windows runtime...
         compat/
-            scrcpy.exe
-            ...complete scrcpy 3.3.4 compatibility runtime...
+            ...complete scrcpy 3.3.4 Windows runtime...
     win-x86/
-        scrcpy.exe
-        ...complete primary scrcpy 4.0 Windows runtime...
+        ...complete scrcpy 4.0 Windows runtime...
         compat/
-            scrcpy.exe
-            ...complete scrcpy 3.3.4 compatibility runtime...
+            ...complete scrcpy 3.3.4 Windows runtime...
 ```
 
-Copy the complete official runtime contents, not only `scrcpy.exe`. Keep all
-license and notice files supplied with the official archives.
+- Platform-Tools: <https://developer.android.com/tools/releases/platform-tools>
+- scrcpy: <https://github.com/Genymobile/scrcpy/releases>
 
-## Build
+Copy the complete scrcpy runtime contents, not only `scrcpy.exe`. The publish
+scripts intentionally include only the required Platform-Tools files and verify
+that `NOTICE.txt` is present.
 
-Open `ADB Connect.csproj` in Visual Studio and select the required runtime, or
-use one of the included publishing scripts:
+## Build and publish
+
+Open `ADB Connect.csproj` in Visual Studio for development. For release output,
+run both scripts from a Developer Command Prompt:
 
 ```text
 Publish-x64.cmd
 Publish-x86.cmd
 ```
 
-Expected publish directories:
+The scripts create self-contained outputs under `publish/x64` and `publish/x86`,
+copy the license files for the installed .NET version and fail if a required
+runtime or notice file is missing.
 
-```text
-publish/x64/
-publish/x86/
-```
+## Signing and all-in-one release
 
-The scripts verify that both the primary and compatibility scrcpy runtimes were
-included in the publish output.
+See [SIGNING.md](SIGNING.md) before producing public binaries. Spadra remains the
+personal project name in application metadata; the trusted Publisher displayed
+by Windows is the legal personal name contained in the code-signing certificate.
+
+After publishing:
+
+1. Sign both application executables with `Sign-Published-Binaries.ps1`.
+2. Configure the Inno Setup sign tool named `PersonalCodeSign`.
+3. Build both signed installers with `Build-Installers.ps1`.
+4. Run `Create-Release-Packages.ps1`.
+5. Verify the generated file with `Verify-SHA256SUMS.ps1`.
+
+The final script creates x64/x86 portable ZIPs, copies the signed installers,
+downloads and verifies the corresponding FFmpeg sources, and generates
+`SHA256SUMS.txt` under `release/v1.6.4`.
 
 ## Wireless Debugging
 
-On devices that use Android Wireless Debugging, the pairing port and connection
-port may be different. Enter the values exactly as displayed by the device. The
-pairing code is sent to ADB through standard input and is not intentionally
-written to application logs.
+The pairing port and connection port may be different. Enter both values exactly
+as displayed by the device. The pairing code is sent to ADB through standard
+input and is not intentionally written to application logs.
 
 ## Compatibility notes
 
-Some Android TV video encoders may cause newer scrcpy versions to return a
-stream that is much smaller than the physical display. When Original mode is
-used, ADB Connect compares the expected display size with the received scrcpy
-texture and can switch to the configured scrcpy 3.3.4 compatibility runtime when
-a severe reduction is detected.
-
-The fallback is based on the reported display and stream dimensions, not on a
-specific IP address or television model.
+Some Android TV video encoders may cause newer scrcpy versions to return a stream
+that is much smaller than the physical display. In Original mode, ADB Connect
+compares the expected display size with the received texture and can switch to
+scrcpy 3.3.4 when a severe reduction is detected. The decision is based on the
+reported dimensions, not on an IP address or device model.
 
 Windows-based screenshots capture the visible TV Control area. Content protected
 by Android or application security policies may appear black, while unprotected
@@ -145,28 +140,15 @@ menus and overlays may remain visible.
 
 ## Security and responsible use
 
-Use ADB Connect only with devices that you own or are explicitly authorized to
-manage. Enabling ADB or Wireless Debugging gives a connected computer extensive
-access to the Android device.
-
-Do not commit pairing codes, private IP inventories, bug reports, customer data,
-code-signing certificates or other sensitive information to the repository.
+Use ADB Connect only with devices that you own or are authorized to manage. Do
+not commit pairing codes, device reports, private IP inventories, logs,
+code-signing certificates or certificate passwords.
 
 ## License
 
-ADB Connect is licensed under the [Apache License 2.0](LICENSE).
+ADB Connect is licensed under the [Apache License 2.0](LICENSE). Third-party
+components remain subject to their own licenses; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [LICENSES](LICENSES).
 
-Third-party components remain subject to their respective licenses. See
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the [LICENSES](LICENSES)
-directory.
-
-ADB Connect is an independent project and is not affiliated with, endorsed by,
-or sponsored by Google, Genymobile or Microsoft.
-
-## Issues and contributions
-
-Bug reports and improvement proposals may be submitted through the repository's
-Issues section. When reporting a device-specific problem, remove sensitive data
-and include only the information required to reproduce the issue, such as the
-device model, Android version, ADB state, scrcpy version and relevant sanitized
-log lines.
+ADB Connect is independent and is not affiliated with, endorsed by or sponsored
+by Google, Genymobile or Microsoft.
