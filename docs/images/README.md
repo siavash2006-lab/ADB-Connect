@@ -5,16 +5,24 @@ Visual assets used in the ADB Connect README and Release Notes.
 
 ### Application overview
 
-![ADB Connect main window](docs/images/adb-connect-main.png)
+![ADB Connect main window](Device%20Propertise.png)
 
 ### Wireless Debugging pairing
 
-![ADB Connect Pair Device window](docs/images/pair-device.png)
+![ADB Connect Pair Device window](Pair%20wireless%20ADB%20Devices.png)
 
-### TV Control
+### App Managment Tab
 
-![ADB Connect TV Control window](docs/images/tv-control.png)
+![ADB Connect Pair Device window](App%20Managment.png)
+
+### Log Tab
+
+![ADB Connect Pair Device window](log.png)
+
+### TV Control Tab
+
+![ADB Connect TV Control window](TV%20Control.png)
 
 ### Quick demonstration
 
-![ADB Connect demonstration](docs/images/adb-connect-demo.gif)
+![ADB Connect demonstration](Project.gif)
