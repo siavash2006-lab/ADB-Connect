@@ -1,5 +1,7 @@
 # ADB Connect
 
+[Documentation in English and Persian](DOCUMENTATION.md)
+
 [![Platform](https://img.shields.io/badge/platform-Windows-blue)](https://www.microsoft.com/windows)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
@@ -10,7 +12,7 @@ It integrates scrcpy for interactive screen mirroring and remote control.
 
 - Repository: <https://github.com/siavash2006-lab/ADB-Connect>
 - Project website: <https://spadra.ir>
-- Current version: **1.6.4**
+- Current version: **1.6.5**
 
 Spadra is the personal project name used by the owner of ADB Connect. It is not
 presented as a registered company or separate legal entity.
@@ -39,8 +41,8 @@ presented as a registered company or separate legal entity.
 
 The Git repository contains the ADB Connect source, release scripts and license
 documentation. Third-party binaries and credentials are excluded from Git. The
-local project package also contains the Inno Setup definitions; `Installer/` is
-gitignored so it can remain a private build resource.
+source package includes the generic Inno Setup definitions under `Installer/`;
+only generated `Installer/Output/` files are excluded from Git.
 
 GitHub Releases may provide all-in-one x64 and x86 installers and portable ZIP
 files. Those packages include the required ADB, scrcpy and self-contained .NET
@@ -55,7 +57,7 @@ archives are published beside the binary assets.
 - Android SDK Platform-Tools
 - scrcpy 4.0 Windows runtime for primary operation
 - scrcpy 3.3.4 Windows runtime for compatibility fallback
-- Inno Setup 6 for installers
+- Inno Setup 6 or 7 for installers
 - Windows SDK and a trusted Authenticode certificate for public releases
 
 ## Dependency layout
@@ -98,7 +100,7 @@ Publish-x64.cmd
 Publish-x86.cmd
 ```
 
-The scripts create self-contained outputs under `publish/x64` and `publish/x86`,
+The scripts create self-contained outputs under `publish/v1.6.5/x64` and `publish/v1.6.5/x86`,
 copy the license files for the installed .NET version and fail if a required
 runtime or notice file is missing.
 
@@ -112,13 +114,18 @@ After publishing:
 
 1. Sign both application executables with `Sign-Published-Binaries.ps1`.
 2. Configure the Inno Setup sign tool named `PersonalCodeSign`.
-3. Build both signed installers with `Build-Installers.ps1`.
+3. Build signed installers using `Build-Installers.ps1 -RequireSigned -SignCommand 'YOUR_SIGNING_COMMAND'` (see SIGNING.md).
 4. Run `Create-Release-Packages.ps1`.
 5. Verify the generated file with `Verify-SHA256SUMS.ps1`.
 
 The final script creates x64/x86 portable ZIPs, copies the signed installers,
 downloads and verifies the corresponding FFmpeg sources, and generates
-`SHA256SUMS.txt` under `release/v1.6.4`.
+`SHA256SUMS.txt` under `release/v1.6.5`.
+
+It also creates `ADB-Connect-1.6.5-Source.zip` and a clean `Source/` tree for
+browser-based repository uploads. For the current unsigned packages, use
+`Create-Release-Packages.ps1 -AllowUnsigned`. See [browser upload instructions](GITHUB-UPLOAD-EN.md)
+before uploading source files and release assets.
 
 ## Wireless Debugging
 
@@ -152,3 +159,7 @@ components remain subject to their own licenses; see
 
 ADB Connect is independent and is not affiliated with, endorsed by or sponsored
 by Google, Genymobile or Microsoft.
+
+## 1.6.5 validation
+
+See [CHANGELOG-1.6.5.md](CHANGELOG-1.6.5.md) and [Persian test guide](TEST-1.6.5-FA.md). Run `dotnet run --project tests/RegressionTests.csproj` for local regression checks without Android devices. Raw Logcat files are saved under `%LOCALAPPDATA%\ADB Connect\Logs`; Keyword filtering affects display only. Package filtering limits capture to the PID selected at Start. Clear View does not erase the device buffer. Local `Build-Installers.ps1` builds are unsigned unless `-RequireSigned` and `-SignCommand` are supplied.

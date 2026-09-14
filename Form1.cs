@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text;
 
 namespace ADB_Connect
@@ -9,11 +9,11 @@ namespace ADB_Connect
         private string? _connectedSerial = null;
         private string? _packages = "packages";
         private List<string> _allPackagesList = new List<string>();
-        private readonly AdbProgressRunner _adbProgress = new AdbProgressRunner();
-        private Process? _logcatProcess;
+        private LogcatSession? _logSession;
+        private string? _lastLogFile;
         private readonly System.Windows.Forms.Timer _logFlushTimer = new();
         private readonly System.Collections.Concurrent.ConcurrentQueue<string> _logQueue = new();
-        private const int MaxLogChars = 300_000; // حدود 300KB - قابل تنظیم
+        private const int MaxLogChars = 300_000; // Display character limit (not a byte count). / سقف تعداد کاراکتر نمایش
         private readonly ScrcpyRunner _scrcpyRunner = new();
         private bool _updatingDeviceSelection;
         private ScrcpyHostForm? _scrcpyHostForm;
@@ -64,70 +64,78 @@ namespace ADB_Connect
             btnBugreport.Enabled = _isConnected;
 
             bool scrcpyRunning = _scrcpyRunner.IsRunning;
-            bool logcatRunning = _logcatProcess is { HasExited: false };
+            bool logcatRunning = _logSession is { IsRunning: true };
             bool scrcpyHostOpen = _scrcpyHostForm is { IsDisposed: false };
-            comboBox1.Enabled = _isConnected && !scrcpyRunning && !scrcpyHostOpen && !logcatRunning;
+            comboBox1.Enabled = comboBox1.Items.Count > 0 && !scrcpyRunning && !scrcpyHostOpen && !logcatRunning;
             comboBox2.Enabled = _isConnected && !scrcpyRunning && !scrcpyHostOpen;
             checkBox1.Enabled = _isConnected && !scrcpyRunning && !scrcpyHostOpen;
             button1.Enabled = _isConnected && !scrcpyRunning && !scrcpyHostOpen;
             btnRefreshScrcpyDevices.Enabled = !scrcpyRunning && !scrcpyHostOpen;
-
-        }
-
-        private Task<(int exitCode, string stdout, string stderr)> RunAdbAsync(string args, int timeoutMs = 20000)
-        {
-            // Host-level commands must not be scoped to a selected device.
-            string trimmedArgs = args.TrimStart();
-            bool isHostCommand =
-                trimmedArgs.Equals("devices", StringComparison.OrdinalIgnoreCase) ||
-                trimmedArgs.StartsWith("devices ", StringComparison.OrdinalIgnoreCase) ||
-                trimmedArgs.Equals("start-server", StringComparison.OrdinalIgnoreCase) ||
-                trimmedArgs.Equals("kill-server", StringComparison.OrdinalIgnoreCase) ||
-                trimmedArgs.Equals("disconnect", StringComparison.OrdinalIgnoreCase) ||
-                trimmedArgs.StartsWith("disconnect ", StringComparison.OrdinalIgnoreCase) ||
-                trimmedArgs.StartsWith("connect ", StringComparison.OrdinalIgnoreCase);
-
-            // Add the globally selected serial to every device-targeted command.
-            if (!string.IsNullOrWhiteSpace(_connectedSerial) &&
-                !isHostCommand &&
-                !args.Contains(" -s ") &&
-                !args.StartsWith("-s "))
+            bool busy = _operationCts != null || _closing;
+            btnStartLog.Enabled = _isConnected && !busy && !logcatRunning;
+            btnStopLog.Enabled = logcatRunning && !_closing;
+            btnConnect.Enabled = btnCheckDevice.Enabled = !busy && !logcatRunning && !scrcpyHostOpen;
+            btnDisconnect.Enabled = _connectedSerial != null && !busy && !logcatRunning;
+            txtIp.Enabled = btnConnect.Enabled;
+            checkedListBox1.Enabled = !busy;
+            btnCancelOperation.Enabled = _canCancelOperation && busy && !_closing;
+            btnCancelOperation.Visible = _canCancelOperation && busy && !_closing;
+            if (busy)
             {
-                args = $"-s {_connectedSerial} {args}";
+                foreach (var control in AllControls(this))
+                    if (control is Button && control != btnStopLog && control != btnCancelOperation && control != btnClearLog)
+                        control.Enabled = false;
+                comboBox1.Enabled = comboBox2.Enabled = checkBox1.Enabled = false;
+                ckbAllApp.Enabled = ckbSystemApps.Enabled = ckbUserApps.Enabled = false;
             }
+            btnExportLog.Enabled = !busy && _lastLogFile != null;
 
-            return AdbRunner.RunAsync(args, timeoutMs);
+
+        }
+
+        private async Task<(int exitCode, string stdout, string stderr)> RunAdbAsync(string args, int timeoutMs = 20000)
+        {
+            string trimmed = args.TrimStart();
+            bool host = trimmed == "devices" || trimmed.StartsWith("devices ") ||
+                trimmed == "start-server" || trimmed == "kill-server" ||
+                trimmed == "disconnect" || trimmed.StartsWith("disconnect ") || trimmed.StartsWith("connect ");
+            if (!host && !trimmed.StartsWith("-s "))
+            {
+                string serial = _operationSerial ?? _connectedSerial ?? throw new InvalidOperationException("Select a device first.");
+                if (serial.Any(char.IsWhiteSpace) || serial.Contains('"')) throw new InvalidOperationException("Invalid device serial.");
+                args = $"-s \"{serial}\" {args}";
+            }
+            var result = await AdbRunner.RunAsync(args, timeoutMs, OperationToken);
+            OperationToken.ThrowIfCancellationRequested();
+            return result;
         }
 
 
-        private async void packageListUpdate()
+        private async Task packageListUpdate()
         {
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
             checkedListBox1.Items.Clear();
 
-            var result = await Task.Run(() =>
-                RunAdbAsync($"shell pm list {_packages}", 20000)
-            );
+            var result = await RunAdbAsync($"shell pm list {_packages}", 20000);
 
             if (result.exitCode != 0)
             {
-                MessageBox.Show(result.stderr, "ADB Error");
-                return;
+                throw new InvalidOperationException("Unable to refresh packages: " + result.stderr);
             }
 
-            // ذخیره پکیج‌ها در لیست مرجع
+            // Store the reference package list. / ذخیره پکیج‌ها در لیست مرجع
             _allPackagesList = result.stdout
                 .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(l => l.Replace("package:", "").Trim())
+                .Where(l => l.StartsWith("package:", StringComparison.Ordinal))
+                .Select(l => l[8..].Trim())
                 .OrderBy(p => p)
                 .ToList();
 
-            // نمایش لیست (در این مرحله چون تکست‌باکس خالی است، همه را نشان می‌دهد)
+            // Apply the current search filter to the list. / اعمال فیلتر جست‌وجوی فعلی
             ApplyFilter();
 
-            _isConnected = true;
-            btnUninstall.Enabled = true;
+            
             UpdateUiByConnectionState();
         }
 
@@ -138,7 +146,7 @@ namespace ADB_Connect
             checkedListBox1.BeginUpdate();
             checkedListBox1.Items.Clear();
 
-            // فیلتر کردن لیست مرجع بر اساس متن جست‌وجو
+            // Filter the reference list by search text. / فیلتر کردن لیست مرجع بر اساس متن جست‌وجو
             var filteredList = _allPackagesList
                 .Where(pkg => pkg.ToLower().Contains(searchTerm))
                 .ToList();
@@ -152,59 +160,17 @@ namespace ADB_Connect
 
         private void AppendLog(string message, Color color)
         {
-            if (rtbLog.InvokeRequired)
-            {
-                rtbLog.Invoke(new Action(() => AppendLog(message, color)));
-                return;
-            }
-
-            // ۱. آماده‌سازی برای اضافه کردن متن رنگی
-            // ابتدا نشانگر را به انتهای متن فعلی می‌بریم
-            rtbLog.SelectionStart = rtbLog.TextLength;
-            rtbLog.SelectionLength = 0;
-
-            // ۲. تعیین رنگ انتخابی برای متنی که قرار است اضافه شود
-            rtbLog.SelectionColor = color;
-
-            // ۳. اضافه کردن متن با فرمت زمان (حالا با رنگ جدید اعمال می‌شود)
-            rtbLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
-
-            // ۴. بازگرداندن رنگ به حالت پیش‌فرض برای جلوگیری از تغییر رنگ ناخواسته در آینده
-            rtbLog.SelectionColor = rtbLog.ForeColor;
-
-            // ۵. مدیریت محدودیت تعداد خطوط (Memory Management)
-            if (!int.TryParse(txtLineLimitation.Text, out int maxLines))
-            {
-                maxLines = 2000;
-            }
-
-            if (rtbLog.Lines.Length > maxLines)
-            {
-                // محاسبه تعداد خطوطی که باید حذف شوند (کمی بیشتر حذف می‌کنیم تا پرفورمنس بهتر شود)
-                int linesToRemove = rtbLog.Lines.Length - maxLines + 50;
-                int charIndex = rtbLog.GetFirstCharIndexFromLine(linesToRemove);
-
-                if (charIndex > 0)
-                {
-                    // ذخیره وضعیت فعلی ReadOnly برای لحظه‌ای کوتاه جهت حذف متن
-                    bool isReadOnly = rtbLog.ReadOnly;
-                    rtbLog.ReadOnly = false;
-
-                    rtbLog.Select(0, charIndex);
-                    rtbLog.SelectedText = "";
-
-                    rtbLog.ReadOnly = isReadOnly;
-                }
-            }
-
-            // ۶. اسکرول خودکار به انتهای صفحه
-            rtbLog.ScrollToCaret();
+            if (_closing || IsDisposed) return;
+            if (InvokeRequired) { EnqueueLogLine(message); return; }
+            WriteDisplayedLog($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}", color);
         }
 
         private async Task<string> GetPidByPackageNameAsync(string packageName)
         {
-            var res = await RunAdbAsync($"-s {_connectedSerial} shell pidof -s {packageName}", 15000);
-            return (res.exitCode == 0 ? res.stdout : "").Trim();
+            if (!CommandRules.IsPackageName(packageName)) throw new ArgumentException("Enter a valid package name.");
+            var r = await RunDeviceAsync(new[] { "shell", "pidof", "-s", packageName });
+            string pid = r.stdout.Trim();
+            return r.exitCode == 0 && pid.Length > 0 && pid.All(char.IsAsciiDigit) ? pid : "";
         }
 
 
@@ -221,43 +187,25 @@ namespace ADB_Connect
 
         private void EnqueueLogLine(string line)
         {
-            _logQueue.Enqueue(line);
+            if (!_closing && _logQueue.Count < 1000) _logQueue.Enqueue(line);
         }
 
         private void FlushLogToRtb()
         {
-            if (_logQueue.IsEmpty) return;
-
-            // حتما روی UI Thread هستیم چون Timer ویندوز فرمز روی UI می‌زند
             var sb = new StringBuilder();
-            int count = 0;
-
-            while (count < 200 && _logQueue.TryDequeue(out var line)) // هر Tick تا 200 خط
-            {
-                sb.AppendLine(line);
-                count++;
-            }
-
-            // جلوی پرش: Scroll lock موقت
-            rtbLog.SuspendLayout();
-
-            // محدودیت حجم برای جلوگیری از کندی و باگ‌های عجیب
-            if (rtbLog.TextLength > MaxLogChars)
-            {
-                rtbLog.Clear();
-            }
-
-            rtbLog.AppendText(sb.ToString());
-            rtbLog.SelectionStart = rtbLog.TextLength;
-            rtbLog.ScrollToCaret();
-
-            rtbLog.ResumeLayout();
+            for (int i = 0; i < 100 && _logQueue.TryDequeue(out var message); i++) sb.AppendLine(message);
+            string filter = txtFilter.Text.Trim(); // UI access stays on the UI thread.
+            for (int i = 0; i < 500 && _logSession != null && _logSession.TryRead(out var line); i++)
+                if (filter.Length == 0 || line!.Contains(filter, StringComparison.OrdinalIgnoreCase)) sb.AppendLine(line);
+            if (sb.Length == 0) return;
+            WriteDisplayedLog(sb.ToString(), rtbLog.ForeColor);
         }
 
 
         public Form1()
         {
             InitializeComponent();
+            InitializeOperationControls();
             System.Drawing.Icon? executableIcon =
                 System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             if (executableIcon is not null)
@@ -266,7 +214,7 @@ namespace ADB_Connect
             UpdateUiByConnectionState();
             // checkedListBox1.Visible = false;
             btnUninstall.Enabled = false;
-            _logFlushTimer.Interval = 80; // 50 تا 150 خوبه
+            _logFlushTimer.Interval = 80; // Display update interval in milliseconds. / فاصله به‌روزرسانی نمایش به میلی‌ثانیه
             _logFlushTimer.Tick += (_, __) => FlushLogToRtb();
             _logFlushTimer.Start();
 
@@ -296,7 +244,7 @@ namespace ADB_Connect
 
         private void ScrcpyRunner_StatusChanged(string status)
         {
-            if (IsDisposed || !IsHandleCreated) return;
+            if (_closing || IsDisposed || !IsHandleCreated) return;
 
             BeginInvoke(new Action(() =>
             {
@@ -307,25 +255,22 @@ namespace ADB_Connect
 
         private void ScrcpyRunner_OutputReceived(string line)
         {
-            if (IsDisposed || !IsHandleCreated) return;
-            BeginInvoke(new Action(() => AppendLog($"scrcpy: {line}", Color.MediumPurple)));
+            if (_closing || IsDisposed || !IsHandleCreated) return;
+            EnqueueLogLine($"scrcpy: {line}");
         }
 
         private async void TabControl1_SelectedIndexChanged(object? sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (tabControl1.SelectedTab == tabPage4 && !_scrcpyRunner.IsRunning)
                 await RefreshScrcpyDevicesAsync();
+            });
         }
 
         private static List<string> ParseOnlineDeviceSerials(string? adbDevicesOutput)
         {
-            return (adbDevicesOutput ?? string.Empty)
-                .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries)
-                .Where(line => !line.StartsWith("List of devices", StringComparison.OrdinalIgnoreCase))
-                .Where(line => line.Contains("\tdevice", StringComparison.Ordinal))
-                .Select(line => line.Split(new[] { '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries)[0])
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
+            return CommandRules.OnlineSerials(adbDevicesOutput ?? "");
         }
 
         private void SetScrcpyDevices(IEnumerable<string> serials)
@@ -343,7 +288,7 @@ namespace ADB_Connect
 
                 string? preferred = items.FirstOrDefault(x => x == _connectedSerial)
                     ?? items.FirstOrDefault(x => x == previous)
-                    ?? items.FirstOrDefault();
+                    ?? (_connectedSerial is null ? items.FirstOrDefault() : null);
 
                 if (preferred is not null)
                 {
@@ -353,7 +298,6 @@ namespace ADB_Connect
                 }
                 else
                 {
-                    _connectedSerial = null;
                     _isConnected = false;
                 }
             }
@@ -365,10 +309,11 @@ namespace ADB_Connect
 
         private void comboBox1_SelectedIndexChanged(object? sender, EventArgs e)
         {
-            if (_updatingDeviceSelection) return;
+            if (_updatingDeviceSelection || _operationCts != null) return;
 
             if (comboBox1.SelectedItem is string serial && !string.IsNullOrWhiteSpace(serial))
             {
+                if (_connectedSerial != serial) { _allPackagesList.Clear(); ApplyFilter(); }
                 _connectedSerial = serial;
                 _isConnected = true;
                 label11.Text = $"Active: {serial}";
@@ -391,12 +336,10 @@ namespace ADB_Connect
             try
             {
                 // Do not use RunAdbAsync here; "adb devices" must not receive a -s argument.
-                var result = await AdbRunner.RunAsync("devices", 20000);
+                var result = await AdbRunner.RunAsync("devices", 20000, OperationToken);
                 if (result.exitCode != 0)
                 {
-                    label11.Text = "ADB error";
-                    AppendLog(result.stderr, Color.Red);
-                    return;
+                    throw new InvalidOperationException("ADB device discovery failed: " + result.stderr);
                 }
 
                 var serials = ParseOnlineDeviceSerials(result.stdout);
@@ -407,8 +350,10 @@ namespace ADB_Connect
             }
             catch (Exception ex)
             {
+                _isConnected = false;
+                OperationToken.ThrowIfCancellationRequested();
                 label11.Text = "Device check failed";
-                AppendLog(ex.Message, Color.Red);
+                throw new InvalidOperationException("Device check failed: " + ex.Message, ex);
             }
             finally
             {
@@ -418,11 +363,16 @@ namespace ADB_Connect
 
         private async void btnRefreshScrcpyDevices_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             await RefreshScrcpyDevicesAsync();
+            });
         }
 
         private async void btnPairDevice_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             string defaultIp = txtIp.Text.Trim();
             if (defaultIp.Count(c => c == ':') == 1)
                 defaultIp = defaultIp.Split(':')[0];
@@ -445,7 +395,7 @@ namespace ADB_Connect
                 var pairResult = await AdbRunner.PairAsync(
                     dialog.PairingEndpoint,
                     dialog.PairingCode,
-                    timeoutMs: 30000);
+                    timeoutMs: 30000, cancellationToken: OperationToken);
 
                 string pairOutput = $"{pairResult.stdout}\n{pairResult.stderr}".Trim();
                 if (pairResult.exitCode != 0)
@@ -464,7 +414,7 @@ namespace ADB_Connect
                 // ConnectionEndpoint deliberately uses the independent Connection Port.
                 var connectResult = await AdbRunner.RunAsync(
                     $"connect {dialog.ConnectionEndpoint}",
-                    timeoutMs: 20000);
+                    timeoutMs: 20000, ct: OperationToken);
 
                 string connectOutput = $"{connectResult.stdout}\n{connectResult.stderr}".Trim();
                 bool connected = connectResult.exitCode == 0 &&
@@ -482,7 +432,10 @@ namespace ADB_Connect
                     return;
                 }
 
+                _connectedSerial = dialog.ConnectionEndpoint;
+                _allPackagesList.Clear(); ApplyFilter();
                 await RefreshScrcpyDevicesAsync();
+                if (!_isConnected) throw new InvalidOperationException("Pairing succeeded, but the device is not online/authorized.");
 
                 if (comboBox1.Items.Contains(dialog.ConnectionEndpoint))
                     comboBox1.SelectedItem = dialog.ConnectionEndpoint;
@@ -497,6 +450,7 @@ namespace ADB_Connect
             }
             catch (Exception ex)
             {
+                OperationToken.ThrowIfCancellationRequested();
                 AppendLog($"Pairing error: {ex.Message}", Color.Red);
                 MessageBox.Show(ex.Message, "Pair Device", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
@@ -507,6 +461,7 @@ namespace ADB_Connect
                 btnDisconnect.Enabled = true;
                 UpdateUiByConnectionState();
             }
+            });
         }
 
         private static (int Width, int Height)? ParseEffectiveDisplaySize(string wmSizeOutput)
@@ -546,6 +501,8 @@ namespace ADB_Connect
 
         private async void btnStartScrcpy_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
 
             if (_scrcpyHostForm is { IsDisposed: false })
@@ -581,7 +538,7 @@ namespace ADB_Connect
                 if (enableAutomaticCompatibility)
                 {
                     label11.Text = "Checking display size...";
-                    expectedDisplaySize = await _scrcpyRunner.GetPrimaryDisplaySizeAsync(serial);
+                    expectedDisplaySize = await _scrcpyRunner.GetPrimaryDisplaySizeAsync(serial, cancellationToken: OperationToken);
 
                     // Fall back to wm size if a vendor build does not support --list-displays.
                     if (expectedDisplaySize is null)
@@ -632,122 +589,51 @@ namespace ADB_Connect
             }
             catch (Exception ex)
             {
+                OperationToken.ThrowIfCancellationRequested();
                 label11.Text = "Start failed";
                 MessageBox.Show(ex.Message, "scrcpy", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 UpdateUiByConnectionState();
             }
+            });
         }
 
         // Devices Button action
         private async void btnChekDevices(object sender, EventArgs e)
         {
-            var result = await AdbRunner.RunAsync("devices", 20000);
-
-            var lines = (result.stdout ?? "").Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-
-            var deviceLines = lines
-            .Where(l => !l.StartsWith("List of devices", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-            if (deviceLines.Count == 0)
+            await RunUiOperationAsync(async () =>
             {
-                MessageBox.Show("No devices are connected.");
-                SetScrcpyDevices(Array.Empty<string>());
-                UpdateUiByConnectionState();
-                return;
-            }
-
-            var online = deviceLines.Where(l => l.Contains("\tdevice")).ToList();
-            var offline = deviceLines.Where(l => l.Contains("\toffline")).ToList();
-            var unauthorized = deviceLines.Where(l => l.Contains("\tunauthorized")).ToList();
-
-            var msg =
-                $"Total: {deviceLines.Count}\n" +
-                $"Online: {online.Count}\n" +
-                $"Offline: {offline.Count}\n" +
-                $"Unauthorized: {unauthorized.Count}\n\n" +
-                string.Join("\n", deviceLines);
-
-            MessageBox.Show(msg);
-
-            // ✅ وضعیت اتصال را بر اساس آنلاین‌ها تعیین کن
-            _isConnected = online.Count > 0;
-
-            // ✅ فقط یک serial معتبر ذخیره کن (اولین دستگاه آنلاین)
-            if (_isConnected)
-            {
-                var firstOnlineLine = online[0];
-                _connectedSerial = firstOnlineLine
-                    .Split(new[] { '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries)[0];
-
-                SetScrcpyDevices(ParseOnlineDeviceSerials(result.stdout));
-            }
-            else
-            {
-                _connectedSerial = null;
-                SetScrcpyDevices(Array.Empty<string>());
-            }
-
-            UpdateUiByConnectionState();
+            await RefreshScrcpyDevicesAsync();
+            });
         }
 
         // Connect Button action
         private async void btnConnect_Click(object sender, EventArgs e)
         {
-            btnConnect.Enabled = false;
-
-            try
+            await RunUiOperationAsync(async () =>
             {
-                var ip = txtIp.Text.Trim();
-                if (string.IsNullOrWhiteSpace(ip))
-                {
-                    MessageBox.Show("Enter the IP.");
-                    return;
-                }
-
-
-                // If port not exist set the 5555 by default.
-                if (!ip.Contains(":"))
-                    ip += ":5555";
-
-                await Task.Run(() => RunAdbAsync("start-server"));
-
-                var result = await Task.Run(() => RunAdbAsync($"connect {ip}", 20000));
-                var combined = (result.stdout + "\n" + result.stderr).ToLowerInvariant();
-
-                _isConnected = combined.Contains("connected to") || combined.Contains("already connected");
-                _connectedSerial = _isConnected ? ip : null;
-
-                if (_isConnected)
-                {
-                    await RefreshScrcpyDevicesAsync();
-                    txtIp.Clear();
-                }
-
-                UpdateUiByConnectionState();
-
-                MessageBox.Show(_isConnected ? $"Connected: {_connectedSerial}" : $"Connect failed:\n{result.stdout}\n{result.stderr}");
-            }
-            catch (Exception ex)
-            {
-                await RefreshScrcpyDevicesAsync();
-                MessageBox.Show(ex.Message);
-            }
-
-            finally
-            {
-                btnConnect.Enabled = true;
-            }
+            string endpoint = NormalizeEndpoint(txtIp.Text.Trim());
+            var result = await RunAdbAsync($"connect {endpoint}");
+            if (result.exitCode != 0 || !(result.stdout.Contains("connected to", StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException((result.stdout + "\n" + result.stderr).Trim());
+            _connectedSerial = endpoint;
+            _allPackagesList.Clear(); ApplyFilter();
+            await RefreshScrcpyDevicesAsync();
+            if (!_isConnected) throw new InvalidOperationException("Connection requested, but the device is not online/authorized.");
+            txtIp.Clear();
+            AppendLog($"Connected: {endpoint}", Color.Green);
+            });
         }
 
         // Disconnect Button action
         private async void btnDisconnect_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             try
             {
                 await _scrcpyRunner.StopAsync();
                 var args = string.IsNullOrWhiteSpace(_connectedSerial) ? "disconnect" : $"disconnect {_connectedSerial}";
-                var result = await Task.Run(() => RunAdbAsync(args, timeoutMs: 20000));
+                var result = await RunAdbAsync(args, timeoutMs: 20000);
 
                 if (result.exitCode == 0) MessageBox.Show(result.stdout);
                 else MessageBox.Show(result.stderr);
@@ -756,698 +642,662 @@ namespace ADB_Connect
             }
             catch (Exception ex)
             {
+                OperationToken.ThrowIfCancellationRequested();
                 MessageBox.Show(ex.Message);
             }
+            });
         }
 
 
         // Reboot Button action
         private async void btnReboot_Click(object sender, EventArgs e)
         {
-            if (!EnsureConnected()) return;
-            _isConnected = false;
-            UpdateUiByConnectionState();
-
-            var r = await Task.Run(() => RunAdbAsync($"-s {_connectedSerial} reboot", 15000));
-
-            if (r.exitCode == 0)
+            await RunUiOperationAsync(async () =>
             {
-                MessageBox.Show("The TV rebooted.");
-                btnConnect.Enabled = true;
-            }
-            else
-                MessageBox.Show(r.stderr);
-
-            _isConnected = true;
-            UpdateUiByConnectionState();
-
-
-
+            if (!EnsureConnected()) return;
+            var result = await RunAdbAsync("reboot ".Trim());
+            if (result.exitCode != 0) throw new InvalidOperationException(result.stderr);
+            _isConnected = false;
+            _rebootRequested = true;
+            await StopLogAsync();
+            AppendLog("Reboot  requested. Refresh devices after boot completes.", Color.Orange);
+            });
         }
 
         // Install Button action
         private async void btnInstallApk_Click(object sender, EventArgs e)
         {
-            if (!EnsureConnected()) return;
-
-            using var ofd = new OpenFileDialog
+            await RunUiOperationAsync(async () =>
             {
-                Title = "Select APK to install",
-                Filter = "APK files (*.apk)|*.apk",
-                CheckFileExists = true
-            };
-
-            if (ofd.ShowDialog() != DialogResult.OK)
-                return;
-
-            string apkPath = ofd.FileName;
-
-            // --- شروع عملیات ---
-            _isConnected = false;
-            UpdateUiByConnectionState();
-            btnInstallApk.Enabled = false;
-
-            // نمایش گیف لودینگ
-            checkedListBox1.Enabled = false;
+            if (!EnsureConnected()) return;
+            using var dialog = new OpenFileDialog { Title = "Select APK to install", Filter = "APK files (*.apk)|*.apk", CheckFileExists = true };
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
             pbLoading.Visible = true;
-
             try
             {
-                var args = $"-s {_connectedSerial} install -r \"{apkPath}\"";
-
-                // اجرای دستور در پس‌زمینه (بدون فریز شدن فرم)
-                var result = await Task.Run(() => RunAdbAsync(args, timeoutMs: 120000));
-
-                var combined = (result.stdout + "\n" + result.stderr);
-                bool ok = combined.IndexOf("Success", StringComparison.OrdinalIgnoreCase) >= 0;
-
-                MessageBox.Show(ok ? "Installation completed successfully ✅" : $"Installation failed ❌\n\n{combined}");
+                var r = await RunDeviceAsync(new[] { "install", "-r", dialog.FileName }, 120000);
+                if (!CommandRules.Succeeded("install", r.exitCode, r.stdout, r.stderr))
+                    throw new InvalidOperationException($"Installation failed.\n{r.stdout}\n{r.stderr}");
+                AppendLog("APK installed successfully.", Color.Green);
+                await packageListUpdate();
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            }
-            finally
-            {
-                // --- اتمام عملیات ---
-
-                // مخفی کردن گیف لودینگ
-                pbLoading.Visible = false;
-                checkedListBox1.Enabled = true;
-
-                _isConnected = true;
-                btnInstallApk.Enabled = true;
-                UpdateUiByConnectionState();
-            }
+            finally { pbLoading.Visible = false; }
+            });
         }
 
 
         // UnInstall Button action
         private async void btnUninstall_Click_1(object sender, EventArgs e)
         {
-            var packages = checkedListBox1.CheckedItems
-        .Cast<string>()
-        .ToList();
-
-            if (packages.Count == 0)
+            await RunUiOperationAsync(async () =>
             {
-                MessageBox.Show("Please select an item");
-                return;
-            }
-
-            foreach (var pkg in packages)
-            {
-                var result = await Task.Run(() =>
-                    RunAdbAsync($"shell pm uninstall --user 0 {pkg}", 20000)
-                );
-
-
-                if (!result.stdout.Contains("Success"))
-                {
-                    Debug.WriteLine($"Failed: {pkg} -> {result.stderr}");
-                }
-            }
-
-            for (int i = checkedListBox1.Items.Count - 1; i >= 0; i--)
-            {
-                if (checkedListBox1.GetItemChecked(i))
-                    checkedListBox1.Items.RemoveAt(i);
-            }
-
-            MessageBox.Show("Uninstall successfully");
+            await RunPackageOperationAsync("uninstall");
+            });
         }
 
         // Start App Button action
         private async void btnStartApp_Click(object sender, EventArgs e)
         {
-            var packages = checkedListBox1.CheckedItems
-            .Cast<string>()
-            .ToList();
-
-            if (packages.Count == 0)
+            await RunUiOperationAsync(async () =>
             {
-                MessageBox.Show("Please select an item");
-                return;
-            }
-
-            foreach (var pkg in packages)
-            {
-                var result = await Task.Run(() =>
-                    RunAdbAsync($"shell monkey -p {pkg} -c android.intent.category.LAUNCHER 1", 20000)
-                );
-                AppendLog($"Starting app: {pkg}", Color.Cyan);
-
-
-                if (!result.stdout.Contains("Success"))
-                {
-                    Debug.WriteLine($"Failed: {pkg} -> {result.stderr}");
-                }
-            }
-
-            MessageBox.Show("The app started");
+            await RunPackageOperationAsync("start");
+            });
         }
 
         // Stop App Button action
         private async void btnStopApp_Click(object sender, EventArgs e)
         {
-            var packages = checkedListBox1.CheckedItems
-            .Cast<string>()
-            .ToList();
-
-            if (packages.Count == 0)
+            await RunUiOperationAsync(async () =>
             {
-                MessageBox.Show("Please select an item");
-                return;
-            }
-
-            foreach (var pkg in packages)
-            {
-                var result = await Task.Run(() =>
-                    RunAdbAsync($"shell am force-stop {pkg}", 20000)
-                );
-                AppendLog($"Force stopping app: {pkg}", Color.Orange);
-
-
-                if (!result.stdout.Contains("Success"))
-                {
-                    Debug.WriteLine($"Failed: {pkg} -> {result.stderr}");
-                }
-            }
-
-            MessageBox.Show("The app stoped");
+            await RunPackageOperationAsync("stop");
+            });
         }
 
 
         // Package list Button action
         private async void btnPackages_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             // checkedListBox1.Visible = true;\
             if (!EnsureConnected()) return;
 
-            packageListUpdate();
+            await packageListUpdate();
 
+            });
         }
 
         // Version Button action
         private async void btnVersion_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.build.version.release", 20000));
+            var result = await RunAdbAsync("shell getprop ro.build.version.release", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show($"Android: {result.stdout}");
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Recovery Button action
         private async void btnRecovery_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
+            var result = await RunAdbAsync("reboot recovery".Trim());
+            if (result.exitCode != 0) throw new InvalidOperationException(result.stderr);
             _isConnected = false;
-            UpdateUiByConnectionState();
-
-            var r = await Task.Run(() => RunAdbAsync($"-s {_connectedSerial} reboot recovery", 15000));
-
-            if (r.exitCode == 0)
-                MessageBox.Show("The TV went into recovery mode.");
-            else
-                MessageBox.Show(r.stderr);
-
-            _isConnected = true;
-            UpdateUiByConnectionState();
+            _rebootRequested = true;
+            await StopLogAsync();
+            AppendLog("Reboot recovery requested. Refresh devices after boot completes.", Color.Orange);
+            });
         }
 
         // Bootloader Button action
         private async void btnBootloader_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
+            var result = await RunAdbAsync("reboot bootloader".Trim());
+            if (result.exitCode != 0) throw new InvalidOperationException(result.stderr);
             _isConnected = false;
-            UpdateUiByConnectionState();
-
-            var r = await Task.Run(() => RunAdbAsync($"-s {_connectedSerial} reboot bootloader", 15000));
-
-            if (r.exitCode == 0)
-                MessageBox.Show("The TV went into recovery mode.");
-            else
-                MessageBox.Show(r.stderr);
-
-            _isConnected = true;
-            UpdateUiByConnectionState();
+            _rebootRequested = true;
+            await StopLogAsync();
+            AppendLog("Reboot bootloader requested. Refresh devices after boot completes.", Color.Orange);
+            });
         }
 
         // Fastboot Button action
         private async void btnFastboot_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
+            var result = await RunAdbAsync("reboot fastboot".Trim());
+            if (result.exitCode != 0) throw new InvalidOperationException(result.stderr);
             _isConnected = false;
-            UpdateUiByConnectionState();
-
-            var r = await Task.Run(() => RunAdbAsync($"-s {_connectedSerial} reboot fastboot", 15000));
-
-            if (r.exitCode == 0)
-                MessageBox.Show("The TV went into recovery mode.");
-            else
-                MessageBox.Show(r.stderr);
-
-            _isConnected = true;
-            UpdateUiByConnectionState();
+            _rebootRequested = true;
+            await StopLogAsync();
+            AppendLog("Reboot fastboot requested. Refresh devices after boot completes.", Color.Orange);
+            });
         }
 
         // Kernel Check Button action
         private async void btnKernelTest_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell uname -a", 20000));
+            var result = await RunAdbAsync("shell uname -a", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Display Resolution Button action
         private async void btnDisplaySize_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop vendor.display-size", 20000));
+            var result = await RunAdbAsync("shell getprop vendor.display-size", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Vendor Finger Print Check Button action
         private async void btnVendorFingerprint_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.vendor.build.fingerprint", 20000));
+            var result = await RunAdbAsync("shell getprop ro.vendor.build.fingerprint", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
 
         // Build Date Check Button action
         private async void btnVendorBuildDate_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.vendor.build.date", 20000));
+            var result = await RunAdbAsync("shell getprop ro.vendor.build.date", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Software Version Check Button action
         private async void button2_Click_1(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.software.version_id", 20000));
+            var result = await RunAdbAsync("shell getprop ro.software.version_id", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Build ID Check Button action
         private async void btnBuildId_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.system_ext.build.id", 20000));
+            var result = await RunAdbAsync("shell getprop ro.system_ext.build.id", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // SKD Version Check Button action
         private async void btnSkdVersion_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.system.build.version.sdk", 20000));
+            var result = await RunAdbAsync("shell getprop ro.system.build.version.sdk", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Serial Number Check Button action
         private async void btnSerialNo_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.serialno", 20000));
+            var result = await RunAdbAsync("shell getprop ro.serialno", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Vendor Name Check Button action
         private async void btnVendorName_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.product.vendor.name", 20000));
+            var result = await RunAdbAsync("shell getprop ro.product.vendor.name", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Vendor Model Check Button action
         private async void btnVendorModel_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.product.vendor.model", 20000));
+            var result = await RunAdbAsync("shell getprop ro.product.vendor.model", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Vendor Brand Check Button action
         private async void btnVendorBrand_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.product.vendor.brand", 20000));
+            var result = await RunAdbAsync("shell getprop ro.product.vendor.brand", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Manufacturer Check Button action
         private async void btnManufacturer_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.product.system_ext.manufacturer", 20000));
+            var result = await RunAdbAsync("shell getprop ro.product.system_ext.manufacturer", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Device Check Button action
         private async void btnDevice_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.product.system.device", 20000));
+            var result = await RunAdbAsync("shell getprop ro.product.system.device", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Board Name Check Button action
         private async void btnBoardName_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.product.board", 20000));
+            var result = await RunAdbAsync("shell getprop ro.product.board", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // CPU abi Check Button action
         private async void btnCpuType_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.product.cpu.abi", 20000));
+            var result = await RunAdbAsync("shell getprop ro.product.cpu.abi", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // OEM Key Check Button action
         private async void btnOemKey_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.oem.key1", 20000));
+            var result = await RunAdbAsync("shell getprop ro.oem.key1", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // OpenGL Check Button action
         private async void button3_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.opengles.version", 20000));
+            var result = await RunAdbAsync("shell getprop ro.opengles.version", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Validation Check Button action
         private async void btnValidation_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.nrdp.validation", 20000));
+            var result = await RunAdbAsync("shell getprop ro.nrdp.validation", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Hardware Check Button action
         private async void btnHardware_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.hardware", 20000));
+            var result = await RunAdbAsync("shell getprop ro.hardware", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Client Base Check Button action
         private async void btnClientIdBase_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.com.google.clientidbase", 20000));
+            var result = await RunAdbAsync("shell getprop ro.com.google.clientidbase", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Build Fingerprint Check Button action
         private async void btnBuildFingerprint_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.build.fingerprint", 20000));
+            var result = await RunAdbAsync("shell getprop ro.build.fingerprint", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // VB Meta State Check Button action
         private async void btnVbmeta_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop ro.boot.vbmeta.device_state", 20000));
+            var result = await RunAdbAsync("shell getprop ro.boot.vbmeta.device_state", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Time Zone Check Button action
         private async void btnTimeZone_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop persist.sys.timezone", 20000));
+            var result = await RunAdbAsync("shell getprop persist.sys.timezone", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // ARM Check Button action
         private async void btnArm_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getprop dalvik.vm.isa.arm.variant", 20000));
+            var result = await RunAdbAsync("shell getprop dalvik.vm.isa.arm.variant", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Get Enforce Check Button action
         private async void btnGetEnforce_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
-            var result = await Task.Run(() => RunAdbAsync("shell getenforce", 20000));
+            var result = await RunAdbAsync("shell getenforce", 20000);
 
             if (result.exitCode == 0)
                 MessageBox.Show(result.stdout);
             else MessageBox.Show(result.stderr);
 
-            _isConnected = true;
+            
             UpdateUiByConnectionState();
+            });
         }
 
         // Get Propertise Check Button action
         private async void btnGetProps_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected())
                 return;
 
@@ -1462,9 +1312,7 @@ namespace ADB_Connect
             if (sfd.ShowDialog() != DialogResult.OK)
                 return;
 
-            var result = await Task.Run(() =>
-                RunAdbAsync("shell getprop", 30000)
-            );
+            var result = await RunAdbAsync("shell getprop", 30000);
 
             if (result.exitCode != 0 || string.IsNullOrWhiteSpace(result.stdout))
             {
@@ -1496,6 +1344,7 @@ namespace ADB_Connect
                     MessageBoxIcon.Error
                 );
             }
+            });
         }
 
         //Checkbox for apps change action
@@ -1541,114 +1390,67 @@ namespace ADB_Connect
         //Start log button change action
         private async void btnStartLog_Click(object sender, EventArgs e)
         {
-            if (!EnsureConnected()) return;
-
+            await RunUiOperationAsync(async () =>
+            {
+            if (!EnsureConnected() || _logSession is { IsRunning: true }) return;
             string package = txtPackageFilter.Text.Trim();
-            string pid = "";
-
-            // اگر نام پکیج وارد شده بود، PID آن را پیدا کن
-            if (!string.IsNullOrEmpty(package))
-            {
-                pid = await GetPidByPackageNameAsync(package);
-
-                if (string.IsNullOrEmpty(pid))
-                {
-                    MessageBox.Show("The desired program is not running or could not be found.");
-                    return;
-                }
-            }
-
+            string pid = package.Length > 0 ? await GetPidByPackageNameAsync(package) : "";
+            if (package.Length > 0 && pid.Length == 0) throw new InvalidOperationException("The requested package is not running.");
+            string serial = _operationSerial!;
+            string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ADB Connect", "Logs");
+            Directory.CreateDirectory(folder);
+            string safeSerial = string.Concat(serial.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+            string path = Path.Combine(folder, $"Log_{safeSerial}_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.txt");
+            var args = new List<string> { "-s", serial, "logcat", "-v", "threadtime" };
+            if (pid.Length > 0) args.Add($"--pid={pid}");
+            var session = new LogcatSession(ProcessExecutor.Create(AdbRunner.AdbPath, args), path);
+            _logSession = session;
+            _lastLogFile = path;
             rtbLog.Clear();
-            btnStartLog.Enabled = false;
-            btnStopLog.Enabled = true;
-
-            // ساخت دستور ADB
-            // --pid: فیلتر بر اساس پروسس خاص
-            // -v time: نمایش زمان
-            string arguments = $"-s {_connectedSerial} logcat -v time";
-            if (!string.IsNullOrEmpty(pid)) arguments += $" --pid={pid}";
-
-            var psi = new ProcessStartInfo
-            {
-                FileName = AdbRunner.AdbPath,
-                Arguments = arguments,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                CreateNoWindow = true,
-                StandardOutputEncoding = Encoding.UTF8
-            };
-
-            _logcatProcess = new Process { StartInfo = psi };
-            _logcatProcess.OutputDataReceived += (s, ev) =>
-            {
-                if (!string.IsNullOrEmpty(ev.Data))
-                {
-                    // --- فیلترینگ حین اجرا (بر اساس متن موجود در txtFilter) ---
-                    string textFilter = txtFilter.Text.Trim();
-                    if (!string.IsNullOrEmpty(textFilter) && !ev.Data.Contains(textFilter, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return; // اگر حاوی متن فیلتر نبود، نادیده بگیر
-                    }
-
-                    Color logColor = Color.White;
-                    if (ev.Data.Contains(" E ")) logColor = Color.Red;   // Error
-                    if (ev.Data.Contains(" W ")) logColor = Color.Yellow; // Warning
-
-                    AppendLog(ev.Data, logColor);
-                }
-            };
-
-            _logcatProcess.Start();
-            _logcatProcess.BeginOutputReadLine();
+            AppendLog($"Raw log: {path}", Color.Green);
+            _ = ObserveLogAsync(session);
+            });
         }
 
         //Stop log button change action
-        private void btnStopLog_Click(object sender, EventArgs e)
+        private async void btnStopLog_Click(object sender, EventArgs e)
         {
-            if (_logcatProcess != null && !_logcatProcess.HasExited)
-            {
-                try
-                {
-                    _logcatProcess.Kill(true); // بستن پردازش و تمام زیرشاخه ها
-                    AppendLog("Logcat stopped by user.", Color.Orange);
-                }
-                catch { /* ignore */ }
-            }
-
-            _logcatProcess = null;
-
-            btnStartLog.Enabled = true;
-            btnStopLog.Enabled = false;
+            try { await StopLogAsync(); }
+            catch (Exception ex) { AppendLog(ex.Message, Color.Red); }
         }
 
         //Export log button change action
-        private void btnExportLog_Click(object sender, EventArgs e)
+        private async void btnExportLog_Click(object sender, EventArgs e)
         {
-            if (string.IsNullOrEmpty(rtbLog.Text))
+            await RunUiOperationAsync(async () =>
             {
-                MessageBox.Show("There is no log to save.");
-                return;
-            }
-
-            using var sfd = new SaveFileDialog
+            if (_lastLogFile is null || !File.Exists(_lastLogFile))
+                throw new InvalidOperationException("No raw Logcat file is available. Start Log first.");
+            using var dialog = new SaveFileDialog { Title = "Export raw log (independent of display filters)", Filter = "Text files (*.txt)|*.txt", FileName = Path.GetFileName(_lastLogFile) };
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            if (Path.GetFullPath(dialog.FileName).Equals(Path.GetFullPath(_lastLogFile), StringComparison.OrdinalIgnoreCase)) return;
+            // Copy a fixed-length snapshot; a live writer can keep appending safely.
+            await using var source = new FileStream(_lastLogFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            long remaining = source.Length;
+            string temporary = dialog.FileName + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
             {
-                Title = "Save Log File",
-                Filter = "Text Files (*.txt)|*.txt",
-                FileName = $"Log_{DateTime.Now:yyyyMMdd_HHmmss}.txt"
-            };
-
-            if (sfd.ShowDialog() == DialogResult.OK)
-            {
-                try
+                await using (var target = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write))
                 {
-                    File.WriteAllText(sfd.FileName, rtbLog.Text);
-                    MessageBox.Show("The file was saved successfully.");
+                    byte[] buffer = new byte[65536];
+                    while (remaining > 0)
+                    {
+                        int count = await source.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), OperationToken);
+                        if (count == 0) throw new IOException("The log snapshot ended unexpectedly.");
+                        await target.WriteAsync(buffer.AsMemory(0, count), OperationToken);
+                        remaining -= count;
+                    }
                 }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error saving file: {ex.Message}");
-                }
+                File.Move(temporary, dialog.FileName, true);
+                AppendLog("Raw log snapshot exported.", Color.Green);
             }
+            finally { if (File.Exists(temporary)) File.Delete(temporary); }
+            });
         }
 
         //Line log limitation change action
@@ -1663,15 +1465,9 @@ namespace ADB_Connect
         //Clear log button change action
         private void btnClearLog_Click(object sender, EventArgs e)
         {
-            // ۱. پاک کردن صفحه نمایش
+            _logQueue.Clear();
+            _logSession?.ClearDisplay();
             rtbLog.Clear();
-
-            // ۲. پاک کردن بافر لاگ در خود دستگاه اندرویدی
-            if (_isConnected)
-            {
-                Task.Run(() => RunAdbAsync($"-s {_connectedSerial} logcat -c"));
-                AppendLog("Device log buffer cleared.", Color.Green);
-            }
         }
 
         //Line log leave change action
@@ -1680,7 +1476,7 @@ namespace ADB_Connect
             if (string.IsNullOrWhiteSpace(txtLineLimitation.Text))
             {
                 txtLineLimitation.Text = "2000";
-                txtLineLimitation.ForeColor = Color.Gray; // بازگشت به رنگ خاکستری
+                txtLineLimitation.ForeColor = Color.Gray; // Restore placeholder color. / بازگشت به رنگ خاکستری
             }
         }
 
@@ -1690,47 +1486,52 @@ namespace ADB_Connect
             if (txtLineLimitation.Text == "2000")
             {
                 txtLineLimitation.Text = "";
-                txtLineLimitation.ForeColor = Color.Black; // تغییر رنگ به مشکی برای تایپ کاربر
+                txtLineLimitation.ForeColor = Color.Black; // Use the input color. / تغییر رنگ به مشکی برای تایپ کاربر
             }
         }
 
         // Bug Report Button click action.
         private async void btnBugreport_Click(object sender, EventArgs e)
         {
+            await RunUiOperationAsync(async () =>
+            {
             if (!EnsureConnected()) return;
 
-            _isConnected = false;
+            
             UpdateUiByConnectionState();
 
 
-            void LogLine(string s)
-            {
-                if (rtbLog.InvokeRequired)
-                {
-                    rtbLog.BeginInvoke(new Action(() => LogLine(s)));
-                    return;
-                }
-                rtbLog.AppendText(s + Environment.NewLine);
-                rtbLog.ScrollToCaret();
-            }
+            void LogLine(string line) => EnqueueLogLine(line);
 
             try
             {
                 rtbLog.Clear();
                 LogLine("Starting bugreport...");
 
-                // 1) خروجی را در Temp بساز
+                // Generate the report in a temporary file. / خروجی را در Temp بساز
                 var tempDir = Path.GetTempPath();
-                var tempFile = Path.Combine(tempDir, $"bugreport_{DateTime.Now:yyyyMMdd_HHmmss}.zip");
+                var tempFile = Path.Combine(tempDir, $"bugreport_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.zip");
 
                 LogLine("Generating file at: " + tempFile);
                 LogLine("Please wait...");
 
-                // نکته: برای بعضی دستگاه‌ها بهتر است --progress را هم اضافه کنید (اگر adb شما پشتیبانی کند)
+                // Add --progress only if the ADB version supports it. / فقط در صورت پشتیبانی ADB
                 // var args = $"bugreport --progress \"{tempFile}\"";
                 var args = $"-s \"{_connectedSerial}\" bugreport \"{tempFile}\"";
 
-                int exitCode = await AdbRunner.RunStreamingAsync(args, LogLine, timeoutMs: 15 * 60 * 1000);
+                int exitCode;
+                _canCancelOperation = true;
+                UpdateUiByConnectionState();
+                try
+                {
+                    exitCode = await AdbRunner.RunStreamingAsync(args, LogLine, timeoutMs: 15 * 60 * 1000, cancellationToken: OperationToken);
+                }
+                finally
+                {
+                    _canCancelOperation = false;
+                    UpdateUiByConnectionState();
+                }
+                OperationToken.ThrowIfCancellationRequested();
 
                 LogLine($"adb exit code: {exitCode}");
 
@@ -1748,7 +1549,7 @@ namespace ADB_Connect
 
                 LogLine("Bugreport created successfully.");
 
-                // 2) از کاربر بپرس کجا ذخیره کند
+                // Ask where to save the completed report. / از کاربر بپرس کجا ذخیره کند
                 using var sfd = new SaveFileDialog
                 {
                     Title = "Save bugreport",
@@ -1766,18 +1567,20 @@ namespace ADB_Connect
                 File.Copy(tempFile, sfd.FileName, overwrite: true);
                 LogLine("Saved to: " + sfd.FileName);
 
-                // اختیاری: فایل temp را پاک کن
+                // Remove the temporary copy after saving. / فایل موقت را پس از ذخیره پاک کن
                 try { File.Delete(tempFile); } catch { /* ignore */ }
             }
             catch (Exception ex)
             {
+                OperationToken.ThrowIfCancellationRequested();
                 MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
-                _isConnected = true;
+                
                 UpdateUiByConnectionState();
             }
+            });
         }
 
         private void tabPage4_Click(object sender, EventArgs e)
@@ -1785,8 +1588,32 @@ namespace ADB_Connect
 
         }
 
+        private void linkSpadra_LinkClicked(object? sender, LinkLabelLinkClickedEventArgs e)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "https://spadra.ir",
+                    UseShellExecute = true
+                });
+
+                linkSpadra.LinkVisited = true;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Unable to open https://spadra.ir.{Environment.NewLine}{Environment.NewLine}{ex.Message}",
+                    "Open Website",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+        }
+
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
+            _logFlushTimer.Stop();
+            _logFlushTimer.Dispose();
             _scrcpyRunner.Dispose();
             base.OnFormClosed(e);
         }

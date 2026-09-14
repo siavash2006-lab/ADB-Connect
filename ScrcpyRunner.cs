@@ -97,7 +97,7 @@ namespace ADB_Connect
 
         public async Task<(int Width, int Height)?> GetPrimaryDisplaySizeAsync(
             string serial,
-            int timeoutMs = 10000)
+            int timeoutMs = 10000, CancellationToken cancellationToken = default)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -121,6 +121,7 @@ namespace ADB_Connect
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8
             };
+            psi.Environment["ADB"] = AdbRunner.AdbPath;
             psi.ArgumentList.Add("--serial");
             psi.ArgumentList.Add(serial);
             psi.ArgumentList.Add("--list-displays");
@@ -133,9 +134,10 @@ namespace ADB_Connect
             Task<string> stderrTask = process.StandardError.ReadToEndAsync();
 
             using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeoutMs));
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, cancellationToken);
             try
             {
-                await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+                await process.WaitForExitAsync(linked.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -154,6 +156,7 @@ namespace ADB_Connect
                 }
                 catch { }
 
+                cancellationToken.ThrowIfCancellationRequested();
                 return null;
             }
 
@@ -265,6 +268,7 @@ namespace ADB_Connect
                 StandardErrorEncoding = Encoding.UTF8
             };
 
+            psi.Environment["ADB"] = AdbRunner.AdbPath;
             psi.ArgumentList.Add("--serial");
             psi.ArgumentList.Add(options.Serial);
             psi.ArgumentList.Add("--window-title");

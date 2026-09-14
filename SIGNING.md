@@ -32,18 +32,19 @@ authority. A typical command is:
 "C:\Path\To\signtool.exe" sign /sha1 YOUR_CERTIFICATE_THUMBPRINT /fd SHA256 /td SHA256 /tr YOUR_TIMESTAMP_URL /d "ADB Connect" $f
 ```
 
-The Inno Setup scripts require this tool and also sign the uninstaller. Build
-the installers with:
+For local testing, `Build-Installers.ps1` creates unsigned installers and reports
+their actual signature status. For a signed release, supply the signing command
+explicitly; this also enables signing the uninstaller:
 
 ```powershell
-.\Build-Installers.ps1
+.\Build-Installers.ps1 -RequireSigned -SignCommand '"C:\Path\To\signtool.exe" sign /sha1 YOUR_CERTIFICATE_THUMBPRINT /fd SHA256 /td SHA256 /tr YOUR_TIMESTAMP_URL /d "ADB Connect" $f'
 ```
 
 Verify every generated setup file before publishing:
 
 ```powershell
-Get-AuthenticodeSignature '.\Installer\Output\ADB-Connect-1.6.4-x64-Setup.exe'
-Get-AuthenticodeSignature '.\Installer\Output\ADB-Connect-1.6.4-x86-Setup.exe'
+Get-AuthenticodeSignature '.\Installer\Output\ADB-Connect-1.6.5-x64-Setup.exe'
+Get-AuthenticodeSignature '.\Installer\Output\ADB-Connect-1.6.5-x86-Setup.exe'
 ```
 
 The status must be `Valid`. Code signing identifies the publisher and protects

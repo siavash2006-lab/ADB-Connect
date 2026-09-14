@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -9,14 +9,14 @@ namespace ADB_Connect
 {
     public static class AdbRunner
     {
-        // همان امضای قدیمی تو
+        // Preserve the legacy synchronous signature. / همان امضای قدیمی
         public static (int exitCode, string stdout, string stderr) Run(string arguments, int timeoutMs = 15000)
         {
             var r = RunCaptureAsync(arguments, timeoutMs).GetAwaiter().GetResult();
             return (r.ExitCode, r.StdOut, r.StdErr);
         }
 
-        // نسخه async برای اینکه Task.Run اضافی‌ها را حذف کنی (اختیاری ولی خوب)
+        // Async callers do not need an extra Task.Run. / نسخه async بدون نیاز به Task.Run اضافی
         public static async Task<(int exitCode, string stdout, string stderr)> RunAsync(string arguments, int timeoutMs = 15000, CancellationToken ct = default)
         {
             var r = await RunCaptureAsync(arguments, timeoutMs, ct);
@@ -44,7 +44,7 @@ namespace ADB_Connect
 
             try
             {
-                var psi = CreatePsi($"pair {pairingEndpoint}");
+                var psi = ProcessExecutor.Create(AdbPath, new[] { "pair", pairingEndpoint });
                 psi.RedirectStandardInput = true;
 
                 using var process = new Process { StartInfo = psi };
@@ -74,6 +74,7 @@ namespace ADB_Connect
                     bool timedOut = timeoutCts?.IsCancellationRequested == true &&
                                     !cancellationToken.IsCancellationRequested;
 
+                    cancellationToken.ThrowIfCancellationRequested();
                     return (-1, timedOutOutput,
                         timedOut ? "Timeout: adb pairing did not finish." : timedOutError);
                 }
@@ -240,48 +241,18 @@ namespace ADB_Connect
         /// Run adb and capture full stdout/stderr (best for short commands like getprop/pm/devices).
         /// </summary>
         public static async Task<AdbResult> RunCaptureAsync(
-            string arguments,
-            int timeoutMs = 15000,
-            CancellationToken cancellationToken = default)
+            string arguments, int timeoutMs = 15000, CancellationToken cancellationToken = default)
         {
             EnsureAdbExists();
-            await _adbLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return await ProcessExecutor.CaptureAsync(CreatePsi(arguments), timeoutMs, cancellationToken).ConfigureAwait(false);
+        }
 
-            try
-            {
-                using var p = new Process { StartInfo = CreatePsi(arguments) };
-                p.Start();
-
-                // Read concurrently to avoid deadlocks on big outputs
-                Task<string> outTask = p.StandardOutput.ReadToEndAsync();
-                Task<string> errTask = p.StandardError.ReadToEndAsync();
-
-                using var timeoutCts = timeoutMs > 0 ? new CancellationTokenSource(timeoutMs) : null;
-                using var linkedCts = timeoutCts != null
-                    ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token)
-                    : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
-                try
-                {
-                    await p.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    try { if (!p.HasExited) p.Kill(true); } catch { }
-                    var so = await SafeAwait(outTask).ConfigureAwait(false);
-                    var se = await SafeAwait(errTask).ConfigureAwait(false);
-                    bool timedOut = timeoutCts?.IsCancellationRequested == true && !cancellationToken.IsCancellationRequested;
-                    return new AdbResult(-1, so, timedOut ? "Timeout: adb did not respond." : se, timedOut);
-                }
-
-                string stdout = await outTask.ConfigureAwait(false);
-                string stderr = await errTask.ConfigureAwait(false);
-                return new AdbResult(p.ExitCode, stdout, stderr, false);
-            }
-            finally
-            {
-                _adbLock.Release();
-            }
+        internal static async Task<(int exitCode, string stdout, string stderr)> RunArgumentsAsync(
+            IEnumerable<string> arguments, int timeoutMs, CancellationToken cancellationToken)
+        {
+            EnsureAdbExists();
+            var result = await ProcessExecutor.CaptureAsync(ProcessExecutor.Create(AdbPath, arguments), timeoutMs, cancellationToken).ConfigureAwait(false);
+            return (result.ExitCode, result.StdOut, result.StdErr);
         }
 
         /// <summary>
@@ -332,6 +303,8 @@ namespace ADB_Connect
                         ? "Timeout: adb did not finish in time."
                         : "Canceled: operation was canceled by user/app.");
 
+                    await p.WaitForExitAsync().ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
                     return -1;
                 }
 
