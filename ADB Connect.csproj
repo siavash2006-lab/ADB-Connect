@@ -9,10 +9,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>img\icon.ico</ApplicationIcon>
     <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
-    <Version>1.6.4</Version>
-    <FileVersion>1.6.4.0</FileVersion>
-    <AssemblyVersion>1.6.4.0</AssemblyVersion>
-    <InformationalVersion>1.6.4</InformationalVersion>
+    <Version>1.6.5</Version>
+    <FileVersion>1.6.5.0</FileVersion>
+    <AssemblyVersion>1.6.5.0</AssemblyVersion>
+    <InformationalVersion>1.6.5</InformationalVersion>
     <Product>ADB Connect</Product>
     <Company>Spadra</Company>
     <Authors>Spadra</Authors>
@@ -24,6 +24,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="tests\**\*.cs;release\**\*.cs;publish\**\*.cs" />
+    <EmbeddedResource Remove="tests\**\*;release\**\*;publish\**\*" />
+    <None Remove="tests\bin\**\*;tests\obj\**\*" />
     <Content Include="platform-tools\adb.exe;platform-tools\AdbWinApi.dll;platform-tools\AdbWinUsbApi.dll;platform-tools\NOTICE.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>

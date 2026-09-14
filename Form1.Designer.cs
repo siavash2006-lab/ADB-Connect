@@ -162,7 +162,7 @@
             label6.Name = "label6";
             label6.Size = new Size(75, 15);
             label6.TabIndex = 18;
-            label6.Text = "Version: 1.6.4";
+            label6.Text = "Version: 1.6.5";
             // 
             // 
             // panelDeviceSelector
