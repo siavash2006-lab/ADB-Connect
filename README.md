@@ -12,18 +12,21 @@ It integrates scrcpy for interactive screen mirroring and remote control.
 
 - Repository: <https://github.com/siavash2006-lab/ADB-Connect>
 - Project website: <https://spadra.ir>
-- Current version: **1.6.5**
+- Current version: **1.6.6**
 
 Spadra is the personal project name used by the owner of ADB Connect. It is not
 presented as a registered company or separate legal entity.
 
+Release notes: [English](RELEASE-NOTES-1.6.6.md) | [فارسی](RELEASE-NOTES-1.6.6-FA.md).
+
 ## Features
 
+- Compact interface with a single sun/moon theme toggle. The initial theme follows Windows; manual choices are saved.
 - Connect to Android devices over TCP/IP.
 - Pair Wireless Debugging devices with separate pairing and connection ports.
 - Discover online, offline and unauthorized ADB devices.
 - Select one active device globally for all supported operations.
-- Read Android, hardware, build, vendor and display properties.
+- Read properties inline, with Copy and optional Save actions.
 - Install APK files and list, start, stop or uninstall packages.
 - Capture and export Logcat output.
 - Generate and save Android bug reports.
@@ -100,7 +103,7 @@ Publish-x64.cmd
 Publish-x86.cmd
 ```
 
-The scripts create self-contained outputs under `publish/v1.6.5/x64` and `publish/v1.6.5/x86`,
+The scripts create self-contained outputs under `publish/v1.6.6/x64` and `publish/v1.6.6/x86`,
 copy the license files for the installed .NET version and fail if a required
 runtime or notice file is missing.
 
@@ -120,9 +123,9 @@ After publishing:
 
 The final script creates x64/x86 portable ZIPs, copies the signed installers,
 downloads and verifies the corresponding FFmpeg sources, and generates
-`SHA256SUMS.txt` under `release/v1.6.5`.
+`SHA256SUMS.txt` under `release/v1.6.6`.
 
-It also creates `ADB-Connect-1.6.5-Source.zip` and a clean `Source/` tree for
+It also creates `ADB-Connect-1.6.6-Source.zip` and a clean `Source/` tree for
 browser-based repository uploads. For the current unsigned packages, use
 `Create-Release-Packages.ps1 -AllowUnsigned`. See [browser upload instructions](GITHUB-UPLOAD-EN.md)
 before uploading source files and release assets.
@@ -160,6 +163,6 @@ components remain subject to their own licenses; see
 ADB Connect is independent and is not affiliated with, endorsed by or sponsored
 by Google, Genymobile or Microsoft.
 
-## 1.6.5 validation
+## Validation
 
-See [CHANGELOG-1.6.5.md](CHANGELOG-1.6.5.md) and [Persian test guide](TEST-1.6.5-FA.md). Run `dotnet run --project tests/RegressionTests.csproj` for local regression checks without Android devices. Raw Logcat files are saved under `%LOCALAPPDATA%\ADB Connect\Logs`; Keyword filtering affects display only. Package filtering limits capture to the PID selected at Start. Clear View does not erase the device buffer. Local `Build-Installers.ps1` builds are unsigned unless `-RequireSigned` and `-SignCommand` are supplied.
+See [1.6.6 validation](VALIDATION-1.6.6.md), [release notes](RELEASE-NOTES-1.6.6.md) and the historical [1.6.5 changelog](CHANGELOG-1.6.5.md) and [Persian test guide](TEST-1.6.5-FA.md). Run `dotnet run --project tests/RegressionTests.csproj` for local regression checks without Android devices. Raw Logcat files are saved under `%LOCALAPPDATA%\ADB Connect\Logs`; Keyword filtering affects display only. Package filtering limits capture to the PID selected at Start. Clear View does not erase the device buffer. Local `Build-Installers.ps1` builds are unsigned unless `-RequireSigned` and `-SignCommand` are supplied.

@@ -89,6 +89,8 @@ namespace ADB_Connect
                 ckbAllApp.Enabled = ckbSystemApps.Enabled = ckbUserApps.Enabled = false;
             }
             btnExportLog.Enabled = !busy && _lastLogFile != null;
+            UpdateConnectionBadge(busy);
+            UpdatePropertyActions(busy);
 
 
         }
@@ -116,8 +118,9 @@ namespace ADB_Connect
             
             UpdateUiByConnectionState();
             checkedListBox1.Items.Clear();
+            _allPackagesList.Clear();
 
-            var result = await RunAdbAsync($"shell pm list {_packages}", 20000);
+            var result = await RunDeviceAsync(CommandRules.PackageListArguments(_packages ?? "packages"));
 
             if (result.exitCode != 0)
             {
@@ -125,12 +128,7 @@ namespace ADB_Connect
             }
 
             // Store the reference package list. / ذخیره پکیج‌ها در لیست مرجع
-            _allPackagesList = result.stdout
-                .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries)
-                .Where(l => l.StartsWith("package:", StringComparison.Ordinal))
-                .Select(l => l[8..].Trim())
-                .OrderBy(p => p)
-                .ToList();
+            _allPackagesList = CommandRules.InstalledPackages(result.stdout);
 
             // Apply the current search filter to the list. / اعمال فیلتر جست‌وجوی فعلی
             ApplyFilter();
@@ -179,7 +177,7 @@ namespace ADB_Connect
             if (!_isConnected || string.IsNullOrWhiteSpace(_connectedSerial) ||
         _connectedSerial.Contains("\n") || _connectedSerial.Contains(" "))
             {
-                MessageBox.Show("First, connect the device.");
+                AppDialog.Show("First, connect the device.");
                 return false;
             }
             return true;
@@ -206,6 +204,7 @@ namespace ADB_Connect
         {
             InitializeComponent();
             InitializeOperationControls();
+            InitializeIndustrialTheme();
             System.Drawing.Icon? executableIcon =
                 System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             if (executableIcon is not null)
@@ -401,7 +400,7 @@ namespace ADB_Connect
                 if (pairResult.exitCode != 0)
                 {
                     AppendLog($"Pairing failed: {pairOutput}", Color.Red);
-                    MessageBox.Show(
+                    AppDialog.Show(
                         string.IsNullOrWhiteSpace(pairOutput) ? "Pairing failed." : pairOutput,
                         "Pair Device",
                         MessageBoxButtons.OK,
@@ -424,7 +423,7 @@ namespace ADB_Connect
                 if (!connected)
                 {
                     AppendLog($"Pair succeeded, but connection failed: {connectOutput}", Color.OrangeRed);
-                    MessageBox.Show(
+                    AppDialog.Show(
                         $"Pairing succeeded, but ADB could not connect to {dialog.ConnectionEndpoint}.\n\n{connectOutput}",
                         "Pair Device",
                         MessageBoxButtons.OK,
@@ -442,7 +441,7 @@ namespace ADB_Connect
 
                 txtIp.Clear();
                 AppendLog($"Connected to {dialog.ConnectionEndpoint}.", Color.Green);
-                MessageBox.Show(
+                AppDialog.Show(
                     $"Pairing and connection completed successfully.\n\nPair port: {dialog.PairingPort}\nConnect port: {dialog.ConnectionPort}",
                     "Pair Device",
                     MessageBoxButtons.OK,
@@ -452,7 +451,7 @@ namespace ADB_Connect
             {
                 OperationToken.ThrowIfCancellationRequested();
                 AppendLog($"Pairing error: {ex.Message}", Color.Red);
-                MessageBox.Show(ex.Message, "Pair Device", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                AppDialog.Show(ex.Message, "Pair Device", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
@@ -513,7 +512,7 @@ namespace ADB_Connect
 
             if (comboBox1.SelectedItem is not string serial || string.IsNullOrWhiteSpace(serial))
             {
-                MessageBox.Show("Select an online device first.", "scrcpy");
+                AppDialog.Show("Select an online device first.", "scrcpy");
                 return;
             }
 
@@ -591,7 +590,7 @@ namespace ADB_Connect
             {
                 OperationToken.ThrowIfCancellationRequested();
                 label11.Text = "Start failed";
-                MessageBox.Show(ex.Message, "scrcpy", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                AppDialog.Show(ex.Message, "scrcpy", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 UpdateUiByConnectionState();
             }
             });
@@ -635,15 +634,15 @@ namespace ADB_Connect
                 var args = string.IsNullOrWhiteSpace(_connectedSerial) ? "disconnect" : $"disconnect {_connectedSerial}";
                 var result = await RunAdbAsync(args, timeoutMs: 20000);
 
-                if (result.exitCode == 0) MessageBox.Show(result.stdout);
-                else MessageBox.Show(result.stderr);
+                if (result.exitCode == 0) AppDialog.Show(result.stdout);
+                else AppDialog.Show(result.stderr);
 
                 await RefreshScrcpyDevicesAsync();
             }
             catch (Exception ex)
             {
                 OperationToken.ThrowIfCancellationRequested();
-                MessageBox.Show(ex.Message);
+                AppDialog.Show(ex.Message);
             }
             });
         }
@@ -730,24 +729,9 @@ namespace ADB_Connect
         // Version Button action
         private async void btnVersion_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.build.version.release", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show($"Android: {result.stdout}");
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.build.version.release");
         }
 
-        // Recovery Button action
         private async void btnRecovery_Click(object sender, EventArgs e)
         {
             await RunUiOperationAsync(async () =>
@@ -795,559 +779,134 @@ namespace ADB_Connect
         // Kernel Check Button action
         private async void btnKernelTest_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell uname -a", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell uname -a");
         }
 
-        // Display Resolution Button action
         private async void btnDisplaySize_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop vendor.display-size", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop vendor.display-size");
         }
 
-        // Vendor Finger Print Check Button action
         private async void btnVendorFingerprint_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.vendor.build.fingerprint", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.vendor.build.fingerprint");
         }
 
-
-        // Build Date Check Button action
         private async void btnVendorBuildDate_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.vendor.build.date", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.vendor.build.date");
         }
 
-        // Software Version Check Button action
         private async void button2_Click_1(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.software.version_id", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.software.version_id");
         }
 
-        // Build ID Check Button action
         private async void btnBuildId_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.system_ext.build.id", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.system_ext.build.id");
         }
 
-        // SKD Version Check Button action
         private async void btnSkdVersion_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.system.build.version.sdk", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.system.build.version.sdk");
         }
 
-        // Serial Number Check Button action
         private async void btnSerialNo_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.serialno", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.serialno");
         }
 
-        // Vendor Name Check Button action
         private async void btnVendorName_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.product.vendor.name", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.product.vendor.name");
         }
 
-        // Vendor Model Check Button action
         private async void btnVendorModel_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.product.vendor.model", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.product.vendor.model");
         }
 
-        // Vendor Brand Check Button action
         private async void btnVendorBrand_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.product.vendor.brand", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.product.vendor.brand");
         }
 
-        // Manufacturer Check Button action
         private async void btnManufacturer_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.product.system_ext.manufacturer", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.product.system_ext.manufacturer");
         }
 
-        // Device Check Button action
         private async void btnDevice_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.product.system.device", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.product.system.device");
         }
 
-        // Board Name Check Button action
         private async void btnBoardName_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.product.board", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.product.board");
         }
 
-        // CPU abi Check Button action
         private async void btnCpuType_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.product.cpu.abi", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.product.cpu.abi");
         }
 
-        // OEM Key Check Button action
         private async void btnOemKey_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.oem.key1", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.oem.key1");
         }
 
-        // OpenGL Check Button action
         private async void button3_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.opengles.version", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.opengles.version");
         }
 
-        // Validation Check Button action
         private async void btnValidation_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.nrdp.validation", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.nrdp.validation");
         }
 
-        // Hardware Check Button action
         private async void btnHardware_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.hardware", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.hardware");
         }
 
-        // Client Base Check Button action
         private async void btnClientIdBase_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.com.google.clientidbase", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.com.google.clientidbase");
         }
 
-        // Build Fingerprint Check Button action
         private async void btnBuildFingerprint_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.build.fingerprint", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.build.fingerprint");
         }
 
-        // VB Meta State Check Button action
         private async void btnVbmeta_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop ro.boot.vbmeta.device_state", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop ro.boot.vbmeta.device_state");
         }
 
-        // Time Zone Check Button action
         private async void btnTimeZone_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop persist.sys.timezone", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop persist.sys.timezone");
         }
 
-        // ARM Check Button action
         private async void btnArm_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getprop dalvik.vm.isa.arm.variant", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop dalvik.vm.isa.arm.variant");
         }
 
-        // Get Enforce Check Button action
         private async void btnGetEnforce_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected()) return;
-            
-            UpdateUiByConnectionState();
-
-            var result = await RunAdbAsync("shell getenforce", 20000);
-
-            if (result.exitCode == 0)
-                MessageBox.Show(result.stdout);
-            else MessageBox.Show(result.stderr);
-
-            
-            UpdateUiByConnectionState();
-            });
+            await ReadPropertyAsync(sender as Control, "shell getenforce");
         }
 
-        // Get Propertise Check Button action
         private async void btnGetProps_Click(object sender, EventArgs e)
         {
-            await RunUiOperationAsync(async () =>
-            {
-            if (!EnsureConnected())
-                return;
-
-            using var sfd = new SaveFileDialog
-            {
-                Title = "Save Android Properties",
-                Filter = "Text File (*.txt)|*.txt",
-                FileName = "android_props.txt",
-                OverwritePrompt = true
-            };
-
-            if (sfd.ShowDialog() != DialogResult.OK)
-                return;
-
-            var result = await RunAdbAsync("shell getprop", 30000);
-
-            if (result.exitCode != 0 || string.IsNullOrWhiteSpace(result.stdout))
-            {
-                MessageBox.Show(
-                    "Failed to read device properties.\n" + result.stderr,
-                    "ADB Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error
-                );
-                return;
-            }
-
-            try
-            {
-                File.WriteAllText(sfd.FileName, result.stdout, Encoding.UTF8);
-                MessageBox.Show(
-                    "Properties saved successfully.",
-                    "Done",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information
-                );
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    ex.Message,
-                    "File Write Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error
-                );
-            }
-            });
+            await ReadPropertyAsync(sender as Control, "shell getprop");
         }
 
-        //Checkbox for apps change action
         private void ckbSystemApps_CheckedChanged(object sender, EventArgs e)
         {
             if (ckbSystemApps.Checked)
@@ -1573,7 +1132,7 @@ namespace ADB_Connect
             catch (Exception ex)
             {
                 OperationToken.ThrowIfCancellationRequested();
-                MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                AppDialog.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
@@ -1602,7 +1161,7 @@ namespace ADB_Connect
             }
             catch (Exception ex)
             {
-                MessageBox.Show(
+                AppDialog.Show(
                     $"Unable to open https://spadra.ir.{Environment.NewLine}{Environment.NewLine}{ex.Message}",
                     "Open Website",
                     MessageBoxButtons.OK,

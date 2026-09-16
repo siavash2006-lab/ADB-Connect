@@ -35,6 +35,17 @@ void Check(bool condition, string name)
 ProcessStartInfo Child(string mode, params string[] extra) => ProcessExecutor.Create(
     Environment.ProcessPath!, new[] { "child", mode }.Concat(extra));
 
+foreach (string filter in new[] { "packages", "packages -s", "packages -3" })
+{
+    var listArgs = CommandRules.PackageListArguments(filter);
+    Check(listArgs.Contains("--user") && listArgs[Array.IndexOf(listArgs, "--user") + 1] == "0" && !listArgs.Contains("-u"),
+        $"{filter}: only installed packages for uninstall user, no removed packages");
+}
+Check(CommandRules.PackageListArguments("packages -s").Contains("-s") &&
+    CommandRules.PackageListArguments("packages -3").Contains("-3"), "system and third-party filters preserved");
+Check(CommandRules.InstalledPackages("package:com.example.b\r\npackage:com.example.a\npackage:com.example.b\nWARNING: ignored\npackage:bad;command")
+    .SequenceEqual(new[] { "com.example.a", "com.example.b" }), "package list deduplicates and rejects diagnostics and invalid names");
+
 Check(!CommandRules.Succeeded("uninstall", 0, "Failure [DELETE_FAILED_INTERNAL_ERROR]", ""), "uninstall failure with exit zero");
 Check(!CommandRules.Succeeded("install", 1, "Success", ""), "nonzero exit overrides Success");
 Check(CommandRules.Succeeded("uninstall", 0, "Success\r\n", ""), "valid uninstall");

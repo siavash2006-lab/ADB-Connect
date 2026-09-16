@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 if ([string]::IsNullOrWhiteSpace($ChecksumFile)) {
-    $ChecksumFile = Join-Path $PSScriptRoot 'release\v1.6.5\SHA256SUMS.txt'
+    $ChecksumFile = Join-Path $PSScriptRoot 'release\v1.6.6\SHA256SUMS.txt'
 }
 
 $checksumPath = [System.IO.Path]::GetFullPath($ChecksumFile)
