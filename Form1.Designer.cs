@@ -1,4 +1,4 @@
-﻿namespace ADB_Connect
+namespace ADB_Connect
 {
     partial class Form1
     {
@@ -33,7 +33,7 @@
             linkSpadra = new LinkLabel();
             label6 = new Label();
             panelDeviceSelector = new Panel();
-            tabControl1 = new TabControl();
+            tabControl1 = new SoftTabControl();
             tabPage1 = new TabPage();
             btnGetProps = new Button();
             btnGetEnforce = new Button();
@@ -101,10 +101,10 @@
             tabPage4 = new TabPage();
             button1 = new Button();
             btnRefreshScrcpyDevices = new Button();
-            comboBox1 = new ComboBox();
+            comboBox1 = new SoftComboBox();
             label8 = new Label();
             label9 = new Label();
-            comboBox2 = new ComboBox();
+            comboBox2 = new SoftComboBox();
             label10 = new Label();
             label11 = new Label();
             checkBox1 = new CheckBox();
@@ -162,7 +162,7 @@
             label6.Name = "label6";
             label6.Size = new Size(75, 15);
             label6.TabIndex = 18;
-            label6.Text = "Version: 1.6.5";
+            label6.Text = "Version: 1.6.6";
             // 
             // 
             // panelDeviceSelector

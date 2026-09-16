@@ -32,7 +32,7 @@ public partial class Form1
         clearDevice.Click += async (_, _) => await RunUiOperationAsync(async () =>
         {
             if (!EnsureConnected()) return;
-            if (MessageBox.Show(this, $"Clear the Android Logcat buffer on {_operationSerial}?\nSaved log files will be kept.",
+            if (AppDialog.Show(this, $"Clear the Android Logcat buffer on {_operationSerial}?\nSaved log files will be kept.",
                 "Clear device buffer", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
             var r = await RunDeviceAsync(new[] { "logcat", "-c" });
             if (r.exitCode != 0) throw new InvalidOperationException(r.stderr);
@@ -75,7 +75,7 @@ public partial class Form1
         catch (Exception ex)
         {
             AppendLog(ex.Message, Color.Red);
-            if (!_closing) MessageBox.Show(this, ex.Message, "Operation failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            if (!_closing) AppDialog.Show(this, ex.Message, "Operation failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
@@ -129,11 +129,28 @@ public partial class Form1
             var r = await RunDeviceAsync(args);
             bool success = CommandRules.Succeeded(operation, r.exitCode, r.stdout, r.stderr);
             string detail = success ? "Succeeded" : $"Failed (exit {r.exitCode}): {(r.stdout + " " + r.stderr).Trim()}";
+            if (operation == "uninstall" && success)
+            {
+                // Verify against the same user's installed packages, independently of the UI filter.
+                var verification = await RunDeviceAsync(CommandRules.PackageListArguments());
+                if (verification.exitCode != 0)
+                {
+                    success = false;
+                    detail = "Uninstall reported success, but verification failed: " +
+                        (verification.stdout + " " + verification.stderr).Trim();
+                }
+                else if (CommandRules.InstalledPackages(verification.stdout).Contains(package, StringComparer.Ordinal))
+                {
+                    success = false;
+                    detail = "Verification failed: package is still installed for user 0.";
+                }
+                else detail = "Uninstalled for user 0 (verified)";
+            }
             results.Add($"{package}: {detail}");
             AppendLog($"{operation} — {package}: {detail}", success ? Color.Green : Color.Red);
         }
         if (operation == "uninstall") await packageListUpdate();
-        MessageBox.Show(this, string.Join(Environment.NewLine, results), $"{operation} results — {_operationSerial}");
+        AppDialog.Show(this, string.Join(Environment.NewLine, results), $"{operation} results — {_operationSerial}");
     }
 
     internal static string NormalizeEndpoint(string input)

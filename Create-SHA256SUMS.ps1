@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$ReleaseDirectory = (Join-Path $PSScriptRoot 'release\v1.6.5')
+    [string]$ReleaseDirectory = (Join-Path $PSScriptRoot 'release\v1.6.6')
 )
 
 $ErrorActionPreference = 'Stop'

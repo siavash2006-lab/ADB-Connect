@@ -86,6 +86,8 @@ namespace ADB_Connect
 
             AcceptButton = _btnPairAndConnect;
             CancelButton = _btnCancel;
+            _btnPairAndConnect.Tag = "primary";
+            AppTheme.Attach(this);
         }
 
         private void AddLabel(string text, int y)
@@ -135,14 +137,14 @@ namespace ADB_Connect
         {
             if (!IPAddress.TryParse(DeviceIp, out _))
             {
-                MessageBox.Show("Enter a valid IP address.", "Pair Device");
+                AppDialog.Show("Enter a valid IP address.", "Pair Device");
                 _txtIp.Focus();
                 return;
             }
 
             if (!IsValidPort(PairingPort) || !IsValidPort(ConnectionPort))
             {
-                MessageBox.Show(
+                AppDialog.Show(
                     "Enter valid ports from 1 to 65535. The Pairing Port and Connection Port may be different.",
                     "Pair Device");
                 if (!IsValidPort(PairingPort))
@@ -154,7 +156,7 @@ namespace ADB_Connect
 
             if (PairingCode.Length != 6 || PairingCode.Any(c => !char.IsDigit(c)))
             {
-                MessageBox.Show("Enter the 6-digit pairing code shown on the device.", "Pair Device");
+                AppDialog.Show("Enter the 6-digit pairing code shown on the device.", "Pair Device");
                 _txtPairCode.Focus();
                 return;
             }

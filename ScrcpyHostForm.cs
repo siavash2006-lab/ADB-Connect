@@ -78,6 +78,7 @@ namespace ADB_Connect
 
             _videoPanel.Dock = DockStyle.Fill;
             _videoPanel.BackColor = Color.Black;
+            _videoPanel.Tag = "video";
             _videoPanel.Resize += (_, _) => ResizeEmbeddedWindow();
 
             Controls.Add(_videoPanel);
@@ -86,6 +87,8 @@ namespace ADB_Connect
             _windowTimer.Interval = 500;
             _windowTimer.Tick += WindowTimer_Tick;
             _runner.StatusChanged += Runner_StatusChanged;
+            _toolbar.Padding = new Padding(8, 5, 8, 5);
+            AppTheme.Attach(this);
         }
 
         protected override async void OnShown(EventArgs e)
@@ -106,7 +109,7 @@ namespace ADB_Connect
             }
             catch (Exception ex)
             {
-                MessageBox.Show(
+                AppDialog.Show(
                     this,
                     ex.Message,
                     "scrcpy",
@@ -197,7 +200,7 @@ namespace ADB_Connect
         {
             if (_scrcpyWindow == IntPtr.Zero || !IsWindow(_scrcpyWindow))
             {
-                MessageBox.Show(
+                AppDialog.Show(
                     this,
                     "The scrcpy window is not ready.",
                     "Screenshot",
@@ -254,7 +257,7 @@ namespace ADB_Connect
 
                 bitmap.Save(saveDialog.FileName, ImageFormat.Png);
                 _statusLabel.Text = $"Saved: {Path.GetFileName(saveDialog.FileName)}";
-                MessageBox.Show(
+                AppDialog.Show(
                     this,
                     $"Screenshot saved successfully.\n\n{saveDialog.FileName}",
                     "Screenshot",
@@ -264,7 +267,7 @@ namespace ADB_Connect
             catch (Exception ex)
             {
                 _statusLabel.Text = "Screenshot failed";
-                MessageBox.Show(
+                AppDialog.Show(
                     this,
                     ex.Message,
                     "Screenshot",
