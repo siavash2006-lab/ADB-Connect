@@ -1,0 +1,11 @@
+# Validation for 1.6.7
+- Builds: x64/x86 self-contained Windows packages.
+- Automated HTTP checks: version comparison, asset selection, SHA-256 validation and cancellation (11 checks).
+- Existing process/ADB-command/log regression suite: 23 checks.
+- Replacement checks: in-place update, backups, preserving unrelated files, skipping identical locked files, path traversal rejection and rollback after locked-file failure.
+- WinForms checks: pairing validation/navigation, compact dialogs and native dropdown keyboard selection.
+- Light/dark renders: tab borders, update badge and themed scrollbars reviewed.
+- Published helper smoke test: a disposable fixture verified waiting for parent exit, replacement, backup, preservation and starting the new executable.
+- GitHub live detection: public 1.6.6 was correctly detected by the deliberately older test build.
+- Not claimed: elevated installer upgrade, full clean-install hardware matrix, native 32-bit Windows testing or TV pairing on actual hardware.
+- Test/preview builds have been removed from the delivered workspace; automated test source remains.
