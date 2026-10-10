@@ -25,6 +25,8 @@ if (args.Length > 0 && args[0] == "child")
     return;
 }
 
+await UpdateServiceChecks.RunAsync();
+ReplacementChecks.Run();
 int checks = 0;
 void Check(bool condition, string name)
 {

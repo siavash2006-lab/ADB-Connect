@@ -26,6 +26,8 @@ public partial class Form1
             bool selected=e.Index==tabControl1.SelectedIndex;
             using var brush=new SolidBrush(selected?AppTheme.SelectedSurface:AppTheme.Background);
             e.Graphics.FillRectangle(brush,e.Bounds);
+            using var outline=new Pen(selected ? AppTheme.Accent : AppTheme.Border);
+            e.Graphics.DrawRectangle(outline, e.Bounds.X+2, e.Bounds.Y+2, e.Bounds.Width-5, e.Bounds.Height-5);
             TextRenderer.DrawText(e.Graphics,tabControl1.TabPages[e.Index].Text,e.Font,e.Bounds,AppTheme.Text,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);
             if(selected) {using var accent=new SolidBrush(AppTheme.Accent); e.Graphics.FillRectangle(accent,e.Bounds.X+8,e.Bounds.Bottom-2,e.Bounds.Width-16,2);}
             if(selected && tabControl1.Focused) ControlPaint.DrawFocusRectangle(e.Graphics,Rectangle.Inflate(e.Bounds,-4,-4));
@@ -52,7 +54,7 @@ public partial class Form1
         label9.Location=new Point(12,18); comboBox2.SetBounds(112,14,262,24); checkBox1.Location=new Point(394,16);
         button1.SetBounds(112,48,262,30); label10.Location=new Point(12,98); label11.Location=new Point(112,98);
         label11.AutoSize=false; label11.Size=new Size(458,42); lblScrcpyHint.SetBounds(12,152,558,60);
-        label6.Location=new Point(0,566); label6.Text="Version 1.6.6"; linkSpadra.Location=new Point(548,566);
+        label6.Location=new Point(0,566); label6.Text="1.6.7"; linkSpadra.Location=new Point(548,566);
         btnCancelOperation.SetBounds(210,557,176,28);
         foreach(var b in new[]{btnConnect,btnInstallApk,btnStartLog,button1,btnGetProps}) b.Tag="primary";
         btnUninstall.Tag="danger"; clearDevice.Tag="danger";
@@ -64,6 +66,7 @@ public partial class Form1
         var icon=new ThemeIconButton {Name="themeToggle",Bounds=new Rectangle(572,22,36,32),TabIndex=0};
         header.Controls.Add(icon);
         Controls.Add(header);
+        InitializeUpdates(header);
         AppTheme.Attach(this,()=>
         {
             UpdateConnectionBadge(_operationCts!=null);

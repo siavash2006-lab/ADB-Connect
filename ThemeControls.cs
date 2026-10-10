@@ -67,11 +67,26 @@ internal sealed class SoftTabControl : TabControl
 // Preserve the native dropdown, keyboard behaviour and accessibility; replace only its closed face.
 internal sealed class SoftComboBox : ComboBox
 {
+    public SoftComboBox() => SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+    protected override void OnPaint(PaintEventArgs e) => PaintFace(e.Graphics);
+    protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); Invalidate(); }
+    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); Invalidate(); }
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        DisableNativeTheme(Handle, "", "");
+    }
+    [System.Runtime.InteropServices.DllImport("uxtheme.dll", EntryPoint = "SetWindowTheme", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int DisableNativeTheme(IntPtr handle, string app, string classes);
     protected override void WndProc(ref Message m)
     {
+        // A closed native combo repaints its hot button directly on mouse movement.
+        // There is no hover state in our face; keep that native pass out entirely.
+        if ((m.Msg == 0x200 || m.Msg == 0x2A3) && DropDownStyle == ComboBoxStyle.DropDownList && !DroppedDown)
+        { m.Result = IntPtr.Zero; return; }
         base.WndProc(ref m);
         if (DropDownStyle != ComboBoxStyle.DropDownList) return;
-        if (m.Msg == 0xF) { using var graphics = CreateGraphics(); PaintFace(graphics); }
+        if (m.Msg is 0x200 or 0x2A3 or 0x7 or 0x8) Invalidate();
         else if ((m.Msg == 0x317 || m.Msg == 0x318) && m.WParam != IntPtr.Zero)
         { using var graphics = Graphics.FromHdc(m.WParam); PaintFace(graphics); }
     }
@@ -91,4 +106,38 @@ internal sealed class SoftComboBox : ComboBox
     }
     protected override void OnSelectedIndexChanged(EventArgs e) { base.OnSelectedIndexChanged(e); Invalidate(); }
     protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); Invalidate(); }
+}
+
+internal sealed class UpdateIconButton : Button
+{
+    private bool _hasUpdate;
+    [System.ComponentModel.DefaultValue(false)]
+    public bool HasUpdate { get => _hasUpdate; set { _hasUpdate = value; Invalidate(); } }
+    public UpdateIconButton()
+    {
+        Cursor = Cursors.Hand;
+        AccessibleName = "Check for updates";
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+    }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.Clear(AppTheme.SelectedSurface);
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        float scale = DeviceDpi / 96f;
+        e.Graphics.TranslateTransform(Width / 2f, Height / 2f);
+        e.Graphics.ScaleTransform(scale, scale);
+        using var pen = new Pen(AppTheme.Text, 1.6f);
+        e.Graphics.DrawArc(pen, -7,-7,14,14,35,285);
+        e.Graphics.DrawLines(pen, new[] { new PointF(2,-9), new PointF(6,-6), new PointF(2,-3) });
+        e.Graphics.ResetTransform();
+        if (HasUpdate)
+        {
+            float diameter = 9 * scale;
+            using var badge = new SolidBrush(Color.FromArgb(255, 153, 63));
+            using var edge = new Pen(AppTheme.Background, 1.5f * scale);
+            var rect = new RectangleF(Width-diameter-2*scale, 2*scale, diameter, diameter);
+            e.Graphics.FillEllipse(badge, rect); e.Graphics.DrawEllipse(edge, rect);
+        }
+        if (Focused) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle,-3,-3),AppTheme.Text,AppTheme.SelectedSurface);
+    }
 }
