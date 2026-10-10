@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '1.6.6')
+param([ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '1.6.7')
 $ErrorActionPreference = 'Stop'
 $release = Join-Path $PSScriptRoot "release\v$Version"
 $stage = Join-Path $release 'Source'

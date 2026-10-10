@@ -1,5 +1,5 @@
 #define MyAppName "ADB Connect"
-#define MyAppVersion "1.6.6"
+#define MyAppVersion "1.6.7"
 #define MyAppPublisher "Spadra"
 #define MyAppURL "https://spadra.ir"
 #define MyAppExeName "ADB Connect.exe"

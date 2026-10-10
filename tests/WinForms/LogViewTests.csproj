@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
-  <ItemGroup>
+  <ItemGroup><Compile Remove="Workflows\**\*.cs" />
     <Compile Include="..\..\LogViewWriter.cs" Link="LogViewWriter.cs" />
   </ItemGroup>
 </Project>

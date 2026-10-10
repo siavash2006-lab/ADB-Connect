@@ -65,6 +65,8 @@ internal static class AppTheme
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
             };
         }
+        foreach (var scrollControl in Descendants(form).Where(c => c is TextBoxBase or ListBox or ScrollableControl))
+            scrollControl.HandleCreated += (_, _) => ApplyScrollTheme(scrollControl);
         foreach (var combo in Descendants(form).OfType<ComboBox>())
         {
             combo.DrawMode = DrawMode.OwnerDrawFixed;
@@ -97,8 +99,23 @@ internal static class AppTheme
         if (root is LinkLabel link) link.LinkColor = Dark ? Color.Turquoise : Accent;
         if (root is ToolStrip strip)
         { strip.Renderer = new ToolStripProfessionalRenderer(new ThemeColors()); foreach (ToolStripItem item in strip.Items) { item.ForeColor = Text; item.BackColor = Surface; } }
+        if (root is TextBoxBase or ListBox or ScrollableControl) ApplyScrollTheme(root);
         if (root is Form form && form.IsHandleCreated) { int dark = Dark ? 1 : 0; _ = DwmSetWindowAttribute(form.Handle,20,ref dark,sizeof(int)); }
     }
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Control, ScrollThemeState> ScrollThemes = new();
+    private sealed class ScrollThemeState { public IntPtr Handle; public bool Dark; }
+    private static void ApplyScrollTheme(Control control)
+    {
+        if (!control.IsHandleCreated) return;
+        var state = ScrollThemes.GetOrCreateValue(control);
+        if (state.Handle == control.Handle && state.Dark == Dark) return;
+        state.Handle = control.Handle; state.Dark = Dark;
+        SetWindowTheme(control.Handle, Dark ? "DarkMode_Explorer" : "Explorer", null);
+        control.Invalidate();
+    }
+    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+    private static extern int SetWindowTheme(IntPtr hwnd, string? subAppName, string? subIdList);
+
     private static void StyleButton(Button button)
     {
         button.UseVisualStyleBackColor=false; button.FlatStyle=FlatStyle.Flat;

@@ -1,9 +1,11 @@
 # Documentation / مستندات
 
-English and Persian versions are provided below. Historical assessments and fix notes describe their original point in time; the current 1.6.6 release incorporates the fixes and the final UI preview.
+English and Persian versions are provided below. Historical assessments and fix notes describe their original point in time; the current 1.6.7 release includes the pairing wizard, in-place updater and UI improvements.
 
 | Topic | English | فارسی |
 | --- | --- | --- |
+| Update behavior | [English](UPDATE-1.6.7-EN.md) | [فارسی](UPDATE-1.6.7-FA.md) |
+| Release 1.6.7 | [English](RELEASE-NOTES-1.6.7.md) | [فارسی](RELEASE-NOTES-1.6.7-FA.md) |
 | Release 1.6.6 | [English](RELEASE-NOTES-1.6.6.md) | [فارسی](RELEASE-NOTES-1.6.6-FA.md) |
 | UI design history | [English](UI-PREVIEW-EN.md) | [فارسی](UI-PREVIEW-FA.md) |
 | Release roadmap | [English](RELEASE-ROADMAP-EN.md) | [فارسی](RELEASE-ROADMAP-FA.md) |

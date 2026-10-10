@@ -7,6 +7,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="WinForms\**\*.cs" />
+    <Compile Include="..\UpdateReplacement.cs" Link="UpdateReplacement.cs" />
+    <Compile Include="..\UpdateService.cs" Link="UpdateService.cs" />
     <Compile Include="..\CommandRules.cs" Link="CommandRules.cs" />
     <Compile Include="..\ProcessExecutor.cs" Link="ProcessExecutor.cs" />
     <Compile Include="..\AdbRunner.cs" Link="AdbRunner.cs" />
